@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "skills": {
+    "bun-development": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "computedHash": "038ce6fe6357843e33d96afa2a900c100066f0c9c2cab2d6562cdb3202ebc7c2"
+    },
+    "daisyui": {
+      "source": "bobmatnyc/claude-mpm-skills",
+      "sourceType": "github",
+      "computedHash": "e0a9aeedd7414ef48837be8cdb7223466d80d831cce908ee8ce2f2d96a9bf964"
+    },
+    "vite": {
+      "source": "antfu/skills",
+      "sourceType": "github",
+      "computedHash": "867ff66238f3152e9c494339ad08dc432dd0df5bcf5cc7a00b61a72b580eb908"
+    },
+    "vue-best-practices": {
+      "source": "hyf0/vue-skills",
+      "sourceType": "github",
+      "computedHash": "3df585ad31aec78fe55c56c1411262737e6b231677a3153dec512a882fde80cd"
+    }
+  }
+}
