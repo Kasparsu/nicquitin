@@ -622,14 +622,23 @@ const gaugeColor = computed(() => {
 
 const timeUntilClean = computed(() => {
   if (nicotineLevel.value <= CLEAN_THRESHOLD) return null
-  const STEP = 3_600_000
+  // 15-min steps over 3 days (288 steps).
+  // Nicotine is physiologically cleared in ≤3 days even for heavy use.
+  // 15-min resolution is accurate enough for display; the old 1-hour step
+  // could overshoot by up to 60 min.
+  const STEP = 15 * 60_000
   const hl = halfLifeH.value
   let lastAbove = now.value
-  for (let i = 1; i <= 14 * 24; i++) {
+  for (let i = 1; i <= 3 * 24 * 4; i++) {
     const t = now.value + i * STEP
-    if (log.value.reduce((s, e) => s + nicotineFromEntry(e, t, hl), 0) > CLEAN_THRESHOLD) lastAbove = t
+    if (log.value.reduce((s, e) => s + nicotineFromEntry(e, t, hl), 0) > CLEAN_THRESHOLD) {
+      lastAbove = t
+    }
   }
-  return formatDuration(lastAbove - now.value + STEP)
+  // lastAbove is the last 15-min boundary still above threshold.
+  // Clean time is somewhere in (lastAbove, lastAbove + STEP], so we
+  // report the midpoint of that window rather than always the far edge.
+  return formatDuration(lastAbove - now.value + STEP / 2)
 })
 
 // ─── Pattern analysis ─────────────────────────────────────────────────────────
