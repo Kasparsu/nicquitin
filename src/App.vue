@@ -68,7 +68,7 @@
             <div v-if="lastUsed" class="text-5xl font-mono font-bold tabular-nums my-1" :class="beatTimerColor">{{ elapsed }}</div>
             <div v-else class="text-base-content/30 text-sm py-4">no usage logged yet</div>
             <p v-if="lastUsed" class="text-base-content/40 text-xs">
-              {{ formatDateTime(lastUsed.ts) }} &mdash; {{ lastUsed.emoji }} {{ lastUsed.product }}
+              {{ formatDateTime(lastUsed.stoppedTs || lastUsed.ts) }} &mdash; {{ lastUsed.emoji }} {{ lastUsed.product }}
               <span v-if="lastUsed.puffs"> · {{ lastUsed.puffs }} puffs</span>
             </p>
           </div>
@@ -107,7 +107,9 @@
             <button
               v-for="p in products" :key="p.id"
               class="btn btn-outline btn-sm flex-col h-auto py-3 gap-0.5"
-              :class="pendingProduct?.id === p.id ? 'btn-primary border-primary' : ''"
+              :class="[
+                pendingProduct?.id === p.id || (p.hasSession && activeSessions[p.id]) ? 'btn-primary border-primary' : '',
+              ]"
               @click="selectProduct(p)"
             >
               <span class="text-xl">{{ p.emoji }}</span>
@@ -115,12 +117,49 @@
               <span class="text-[10px] text-base-content/40">
                 {{ p.nicotineMg.toFixed(3) }}mg{{ p.hasPuffCount ? '/puff' : '' }}
               </span>
+              <span v-if="p.hasSession && activeSessions[p.id]" class="text-[10px] text-primary font-mono">
+                ⏱ {{ sessionElapsedShort(p.id) }}
+              </span>
+              <span v-else-if="p.hasSession" class="text-[10px] text-base-content/30">tap to start</span>
               <span
-                v-if="p.hasPuffCount && cartridgeSessions[p.id]"
+                v-else-if="p.hasPuffCount && cartridgeSessions[p.id]"
                 class="text-[10px]"
                 :class="cartridgePct(p.id) < 20 ? 'text-error' : 'text-base-content/40'"
               >{{ puffsRemaining(p.id) }} left</span>
             </button>
+          </div>
+
+          <!-- Session stop panel (patch / gum / pouch) -->
+          <div v-if="pendingProduct?.hasSession && activeSessions[pendingProduct.id]" class="bg-base-200 rounded-xl p-4 space-y-3">
+            <div class="text-center">
+              <div class="text-2xl font-mono font-bold tabular-nums">{{ sessionElapsed(pendingProduct.id) }}</div>
+              <div class="text-xs text-base-content/50 mt-0.5">{{ pendingProduct.emoji }} {{ pendingProduct.name }} in use</div>
+              <div v-if="activeSessions[pendingProduct.id].reuseCount > 0" class="text-xs text-warning mt-1">
+                reuse #{{ activeSessions[pendingProduct.id].reuseCount }}
+                · ~{{ (pendingProduct.nicotineMg * Math.pow(0.5, activeSessions[pendingProduct.id].reuseCount)).toFixed(2) }}mg available
+              </div>
+            </div>
+            <!-- Gum: spit vs swallow -->
+            <template v-if="pendingProduct.hasSwallowOption">
+              <div class="flex gap-2">
+                <button class="btn btn-outline btn-sm flex-1" @click="stopSession(pendingProduct.id, { swallowed: false })">🚮 spit out</button>
+                <button class="btn btn-primary btn-sm flex-1" @click="stopSession(pendingProduct.id, { swallowed: true })">⬇ swallow</button>
+              </div>
+            </template>
+            <!-- Pouch: done vs reuse -->
+            <template v-else-if="pendingProduct.hasReuseOption">
+              <div class="flex gap-2">
+                <button class="btn btn-primary btn-sm flex-1" @click="stopSession(pendingProduct.id)">✓ remove, done</button>
+                <button class="btn btn-outline btn-sm flex-1" @click="reusePouch(pendingProduct.id)">↩ put back</button>
+              </div>
+            </template>
+            <!-- Patch (or other): just remove -->
+            <template v-else>
+              <div class="flex gap-2">
+                <button class="btn btn-primary btn-sm flex-1" @click="stopSession(pendingProduct.id)">remove {{ pendingProduct.emoji }}</button>
+              </div>
+            </template>
+            <button class="btn btn-ghost btn-sm w-full" @click="pendingProduct = null">cancel</button>
           </div>
 
           <!-- Puff count + cartridge panel -->
@@ -306,11 +345,13 @@
                 <div class="truncate">
                   <span class="font-medium">{{ entry.product }}</span>
                   <span v-if="entry.puffs" class="text-base-content/50 text-xs ml-1">{{ entry.puffs }} puffs</span>
+                  <span v-if="entry.stoppedTs" class="text-base-content/40 text-xs ml-1">{{ formatDuration(entry.stoppedTs - entry.ts) }}</span>
+                  <span v-if="entry.reuseCount > 0" class="text-base-content/30 text-xs ml-1">reuse #{{ entry.reuseCount }}</span>
                   <span v-if="entry.nicotineMg != null" class="text-base-content/40 text-xs ml-1">({{ entry.nicotineMg.toFixed(2) }}mg)</span>
                 </div>
               </div>
               <div class="flex items-center gap-1 shrink-0">
-                <span class="text-base-content/40 text-xs">{{ formatDateTime(entry.ts) }}</span>
+                <span class="text-base-content/40 text-xs">{{ formatDateTime(entry.stoppedTs || entry.ts) }}</span>
                 <button class="btn btn-ghost btn-xs text-error p-0 min-h-0 h-auto leading-none" @click="removeEntry(entry.id)">✕</button>
               </div>
             </li>
@@ -489,6 +530,7 @@ const PRODUCTS_KEY   = 'nicquitin-products'
 const CARTRIDGE_KEY  = 'nicquitin-cartridges'
 const PROFILE_KEY    = 'nicquitin-profile'
 const PROGRESS_KEY   = 'nicquitin-progress'
+const SESSIONS_KEY   = 'nicquitin-sessions'
 
 const BASE_HL_H           = 2      // baseline nicotine half-life (hours)
 const CLEAN_THRESHOLD     = 0.05   // mg
@@ -505,12 +547,12 @@ const DEFAULT_PROFILE = {
 }
 
 const DEFAULT_PRODUCTS = [
-  { id: 'cigarette', name: 'Cigarette',    emoji: '🚬', nicotineMg: 1.1,  releaseType: 'instant', releaseDurationH: 0,   hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0,  cartridgeTotalPuffs: 0   },
-  { id: 'vape',      name: 'Vape',         emoji: '💨', nicotineMg: 0.1,  releaseType: 'instant', releaseDurationH: 0,   hasPuffCount: true,  useCartridgeCalc: true,  cartridgeNicotineMg: 20, cartridgeTotalPuffs: 200 },
-  { id: 'patch',     name: 'Patch (21mg)', emoji: '🩹', nicotineMg: 14,   releaseType: 'slow',    releaseDurationH: 16,  hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0,  cartridgeTotalPuffs: 0   },
-  { id: 'gum',       name: 'Gum (4mg)',    emoji: '🟡', nicotineMg: 2,    releaseType: 'slow',    releaseDurationH: 0.5, hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0,  cartridgeTotalPuffs: 0   },
-  { id: 'pouch',     name: 'Pouch',        emoji: '🫙', nicotineMg: 3,    releaseType: 'slow',    releaseDurationH: 1,   hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0,  cartridgeTotalPuffs: 0   },
-  { id: 'cigar',     name: 'Cigar',        emoji: '🍬', nicotineMg: 3,    releaseType: 'instant', releaseDurationH: 0,   hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0,  cartridgeTotalPuffs: 0   },
+  { id: 'cigarette', name: 'Cigarette',    emoji: '🚬', nicotineMg: 1.1,  releaseType: 'instant', releaseDurationH: 0,   hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0,  cartridgeTotalPuffs: 0,   hasSession: false, hasSwallowOption: false, hasReuseOption: false },
+  { id: 'vape',      name: 'Vape',         emoji: '💨', nicotineMg: 0.1,  releaseType: 'instant', releaseDurationH: 0,   hasPuffCount: true,  useCartridgeCalc: true,  cartridgeNicotineMg: 20, cartridgeTotalPuffs: 200, hasSession: false, hasSwallowOption: false, hasReuseOption: false },
+  { id: 'patch',     name: 'Patch (21mg)', emoji: '🩹', nicotineMg: 14,   releaseType: 'slow',    releaseDurationH: 16,  hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0,  cartridgeTotalPuffs: 0,   hasSession: true,  hasSwallowOption: false, hasReuseOption: false },
+  { id: 'gum',       name: 'Gum (4mg)',    emoji: '🟡', nicotineMg: 2,    releaseType: 'slow',    releaseDurationH: 0.5, hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0,  cartridgeTotalPuffs: 0,   hasSession: true,  hasSwallowOption: true,  hasReuseOption: false },
+  { id: 'pouch',     name: 'Pouch',        emoji: '🫙', nicotineMg: 3,    releaseType: 'slow',    releaseDurationH: 1,   hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0,  cartridgeTotalPuffs: 0,   hasSession: true,  hasSwallowOption: false, hasReuseOption: true  },
+  { id: 'cigar',     name: 'Cigar',        emoji: '🍬', nicotineMg: 3,    releaseType: 'instant', releaseDurationH: 0,   hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0,  cartridgeTotalPuffs: 0,   hasSession: false, hasSwallowOption: false, hasReuseOption: false },
 ]
 
 const MILESTONE_DEFS = [
@@ -556,6 +598,7 @@ const puffCount         = ref(10)
 const refillConfirm     = ref(null)  // { productId, actualPuffs, newEstimate, nicotineMg }
 const importStatus      = ref(null)  // null | 'success' | 'error'
 const importError       = ref('')
+const activeSessions    = ref({})    // { [productId]: { startTs, reuseCount } }
 
 let timer = null
 
@@ -574,6 +617,9 @@ onMounted(() => {
 
   const savedProgress = localStorage.getItem(PROGRESS_KEY)
   if (savedProgress) progressState.value = { ...progressState.value, ...JSON.parse(savedProgress) }
+
+  const savedSessions = localStorage.getItem(SESSIONS_KEY)
+  if (savedSessions) activeSessions.value = JSON.parse(savedSessions)
 
   timer = setInterval(() => { now.value = Date.now() }, 1000)
 })
@@ -609,9 +655,20 @@ function nicotineFromEntry(entry, atMs, hl = halfLifeH.value) {
   return (dose / D) * Math.exp(-lambda * (elapsedH - D)) * (1 - Math.exp(-lambda * D)) / lambda
 }
 
-const nicotineLevel = computed(() =>
-  Math.max(0, log.value.reduce((s, e) => s + nicotineFromEntry(e, now.value), 0))
+// Virtual entries for currently active sessions (ongoing slow-release)
+const activeSessionEntries = computed(() =>
+  Object.entries(activeSessions.value).flatMap(([productId, session]) => {
+    const p = products.value.find(x => x.id === productId)
+    if (!p) return []
+    return [{ ts: session.startTs, nicotineMg: p.nicotineMg * Math.pow(0.5, session.reuseCount || 0), releaseType: p.releaseType, releaseDurationH: p.releaseDurationH }]
+  })
 )
+
+const nicotineLevel = computed(() => {
+  const fromLog    = log.value.reduce((s, e) => s + nicotineFromEntry(e, now.value), 0)
+  const fromActive = activeSessionEntries.value.reduce((s, e) => s + nicotineFromEntry(e, now.value), 0)
+  return Math.max(0, fromLog + fromActive)
+})
 
 const gaugeColor = computed(() => {
   const r = nicotineLevel.value / GAUGE_MAX
@@ -628,10 +685,11 @@ const timeUntilClean = computed(() => {
   // could overshoot by up to 60 min.
   const STEP = 15 * 60_000
   const hl = halfLifeH.value
+  const entries = [...log.value, ...activeSessionEntries.value]
   let lastAbove = now.value
   for (let i = 1; i <= 3 * 24 * 4; i++) {
     const t = now.value + i * STEP
-    if (log.value.reduce((s, e) => s + nicotineFromEntry(e, t, hl), 0) > CLEAN_THRESHOLD) {
+    if (entries.reduce((s, e) => s + nicotineFromEntry(e, t, hl), 0) > CLEAN_THRESHOLD) {
       lastAbove = t
     }
   }
@@ -648,7 +706,9 @@ const intervals = computed(() => {
   const sorted = [...log.value].sort((a, b) => a.ts - b.ts)
   const result = []
   for (let i = 1; i < sorted.length; i++) {
-    const diff = sorted[i].ts - sorted[i - 1].ts
+    // Interval starts when previous session ended (stoppedTs), not when it started
+    const prevEnd = sorted[i - 1].stoppedTs || sorted[i - 1].ts
+    const diff    = sorted[i].ts - prevEnd
     if (diff >= 5 * 60_000) result.push(diff)
   }
   return result
@@ -710,7 +770,7 @@ const targetIntervalMs = computed(() =>
 )
 
 const timeSinceLastMs = computed(() =>
-  lastUsed.value ? now.value - lastUsed.value.ts : 0
+  lastUsed.value ? now.value - (lastUsed.value.stoppedTs || lastUsed.value.ts) : 0
 )
 
 const beatProgress = computed(() =>
@@ -847,11 +907,120 @@ function confirmRefill(productId) {
   newCartridge(productId)
 }
 
+// ─── Session tracking (patch, gum, pouch) ────────────────────────────────────
+
+function startSession(productId) {
+  activeSessions.value = { ...activeSessions.value, [productId]: { startTs: Date.now(), reuseCount: 0 } }
+  localStorage.setItem(SESSIONS_KEY, JSON.stringify(activeSessions.value))
+}
+
+function stopSession(productId, opts = {}) {
+  const session = activeSessions.value[productId]
+  if (!session) return
+  const p = products.value.find(x => x.id === productId)
+  if (!p) return
+
+  const stopTs         = Date.now()
+  const actualDurationH = (stopTs - session.startTs) / 3_600_000
+  const maxDurationH    = p.releaseDurationH || 1
+
+  let scaledMg = p.nicotineMg * Math.min(1, actualDurationH / maxDurationH)
+  scaledMg    *= Math.pow(0.5, session.reuseCount || 0)
+  if (opts.swallowed) scaledMg *= 1.08  // gum: extra absorption when swallowed
+
+  const prevEntry = log.value[0]
+  log.value.unshift({
+    id: session.startTs, productId: p.id, product: p.name, emoji: p.emoji,
+    nicotineMg: scaledMg,
+    releaseType: p.releaseType,
+    releaseDurationH: Math.min(actualDurationH, maxDurationH),
+    puffs: null,
+    ts: session.startTs, stoppedTs: stopTs,
+    reuseCount: session.reuseCount || 0,
+  })
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(log.value))
+
+  if (prevEntry && hasEnoughData.value) {
+    const prevEnd  = prevEntry.stoppedTs || prevEntry.ts
+    const interval = session.startTs - prevEnd
+    if (interval >= 5 * 60_000) checkBeat(interval)
+  }
+
+  const updated = { ...activeSessions.value }
+  delete updated[productId]
+  activeSessions.value = updated
+  localStorage.setItem(SESSIONS_KEY, JSON.stringify(activeSessions.value))
+  pendingProduct.value = null
+}
+
+function reusePouch(productId) {
+  const session = activeSessions.value[productId]
+  if (!session) return
+  const p = products.value.find(x => x.id === productId)
+  if (!p) return
+
+  const stopTs          = Date.now()
+  const actualDurationH = (stopTs - session.startTs) / 3_600_000
+  const maxDurationH    = p.releaseDurationH || 1
+
+  let scaledMg = p.nicotineMg * Math.min(1, actualDurationH / maxDurationH)
+  scaledMg    *= Math.pow(0.5, session.reuseCount || 0)
+
+  // Log the completed sub-session
+  log.value.unshift({
+    id: session.startTs, productId: p.id, product: p.name, emoji: p.emoji,
+    nicotineMg: scaledMg, releaseType: p.releaseType,
+    releaseDurationH: Math.min(actualDurationH, maxDurationH),
+    puffs: null, ts: session.startTs, stoppedTs: stopTs,
+    reuseCount: session.reuseCount || 0,
+  })
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(log.value))
+
+  // Start new session immediately with incremented reuse count
+  activeSessions.value = {
+    ...activeSessions.value,
+    [productId]: { startTs: Date.now(), reuseCount: (session.reuseCount || 0) + 1 },
+  }
+  localStorage.setItem(SESSIONS_KEY, JSON.stringify(activeSessions.value))
+  pendingProduct.value = null
+}
+
+function sessionElapsed(productId) {
+  const session = activeSessions.value[productId]
+  if (!session) return ''
+  const s = Math.floor((now.value - session.startTs) / 1000)
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m`
+  return `${m}m ${String(s % 60).padStart(2, '0')}s`
+}
+
+function sessionElapsedShort(productId) {
+  const session = activeSessions.value[productId]
+  if (!session) return ''
+  const s = Math.floor((now.value - session.startTs) / 1000)
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  if (h > 0) return `${h}h${String(m).padStart(2, '0')}m`
+  return `${m}m`
+}
+
 // ─── Logging ─────────────────────────────────────────────────────────────────
 
 const lastUsed = computed(() => log.value[0] ?? null)
 
 function selectProduct(p) {
+  if (p.hasSession) {
+    if (activeSessions.value[p.id]) {
+      // Toggle stop panel
+      pendingProduct.value = pendingProduct.value?.id === p.id ? null : p
+    } else {
+      // Start session immediately
+      startSession(p.id)
+      pendingProduct.value = null
+    }
+    return
+  }
   if (p.hasPuffCount) {
     const closing = pendingProduct.value?.id === p.id
     pendingProduct.value = closing ? null : p
@@ -882,7 +1051,8 @@ function doLog(p, puffs) {
   // since it uses log.value which hasn't triggered the computed yet — but we
   // need the interval before insert, so compute it directly)
   if (prevEntry && hasEnoughData.value) {
-    const interval = ts - prevEntry.ts
+    const prevEnd  = prevEntry.stoppedTs || prevEntry.ts
+    const interval = ts - prevEnd
     if (interval >= 5 * 60_000) checkBeat(interval)
   }
 }
@@ -914,8 +1084,9 @@ const elapsed = computed(() => {
 
 const milestones = computed(() => {
   if (!lastUsed.value) return []
+  const baseTs = lastUsed.value.stoppedTs || lastUsed.value.ts
   return MILESTONE_DEFS.map(m => {
-    const ts       = lastUsed.value.ts + m.offsetMs
+    const ts       = baseTs + m.offsetMs
     const achieved = now.value >= ts
     return { label: m.label, ts, achieved, remaining: achieved ? null : formatDuration(ts - now.value), ago: achieved ? relativeAgo(ts) : null }
   })
@@ -941,6 +1112,7 @@ function exportData() {
     log:       log.value,
     products:  products.value,
     cartridges: cartridgeSessions.value,
+    sessions:  activeSessions.value,
     profile:   profile.value,
     progress:  progressState.value,
   }
@@ -967,6 +1139,7 @@ function handleImport(event) {
       if (data.log)       { log.value = data.log;                                          localStorage.setItem(STORAGE_KEY,   JSON.stringify(data.log)) }
       if (data.products)  { products.value = data.products;                                localStorage.setItem(PRODUCTS_KEY,  JSON.stringify(data.products)) }
       if (data.cartridges){ cartridgeSessions.value = data.cartridges;                     localStorage.setItem(CARTRIDGE_KEY, JSON.stringify(data.cartridges)) }
+      if (data.sessions)  { activeSessions.value = data.sessions;                          localStorage.setItem(SESSIONS_KEY,  JSON.stringify(data.sessions)) }
       if (data.profile)   { profile.value = { ...DEFAULT_PROFILE, ...data.profile };       localStorage.setItem(PROFILE_KEY,   JSON.stringify(profile.value)) }
       if (data.progress)  { progressState.value = { ...progressState.value, ...data.progress }; localStorage.setItem(PROGRESS_KEY, JSON.stringify(progressState.value)) }
 
