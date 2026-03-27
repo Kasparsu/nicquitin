@@ -116,6 +116,41 @@
         </div>
       </div>
 
+      <!-- Active Sessions Card -->
+      <div v-if="hasActiveSessions" class="card bg-base-100 shadow">
+        <div class="card-body gap-3 py-4">
+          <h2 class="card-title text-base">in use</h2>
+          <div v-for="(session, productId) in activeSessions" :key="productId" class="space-y-1.5">
+            <template v-if="productById(productId)">
+              <div class="flex justify-between items-center text-sm">
+                <span class="font-medium">{{ productById(productId).emoji }} {{ productById(productId).name }}</span>
+                <span class="font-mono text-xs text-base-content/60">{{ sessionElapsed(productId) }}</span>
+              </div>
+              <template v-if="productById(productId).releaseDurationH > 0">
+                <div class="flex justify-between text-xs mb-0.5">
+                  <span :class="sessionProgress(productId) >= 1 ? 'text-success font-medium' : 'text-base-content/50'">
+                    {{ sessionProgress(productId) >= 1 ? '✓ run its course' : sessionTimeRemaining(productId) + ' remaining' }}
+                  </span>
+                  <span class="text-base-content/40">{{ Math.min(100, Math.round(sessionProgress(productId) * 100)) }}%</span>
+                </div>
+                <progress
+                  class="progress w-full h-2"
+                  :class="sessionProgress(productId) >= 1 ? 'progress-success' : 'progress-primary'"
+                  :value="Math.min(sessionProgress(productId), 1)"
+                  max="1"
+                ></progress>
+                <p class="text-xs" :class="sessionProgress(productId) >= 1 ? 'text-success/70' : 'text-base-content/30'">
+                  {{ sessionProgress(productId) >= 1
+                    ? 'full ' + productById(productId).nicotineMg.toFixed(1) + 'mg absorbed — remove when ready'
+                    : '~' + sessionEstimatedDose(productId) + 'mg absorbed if removed now' }}
+                </p>
+              </template>
+              <button class="btn btn-outline btn-xs w-full" @click="selectProduct(productById(productId))">remove / manage</button>
+            </template>
+          </div>
+        </div>
+      </div>
+
       <!-- Log Usage Card -->
       <div class="card bg-base-100 shadow">
         <div class="card-body gap-3">
@@ -134,8 +169,9 @@
               <span class="text-[10px] text-base-content/40">
                 {{ p.nicotineMg.toFixed(3) }}mg{{ p.hasPuffCount ? '/puff' : '' }}
               </span>
-              <span v-if="p.hasSession && activeSessions[p.id]" class="text-[10px] text-primary font-mono">
-                ⏱ {{ sessionElapsedShort(p.id) }}
+              <span v-if="p.hasSession && activeSessions[p.id]" class="text-[10px] font-mono"
+                :class="sessionProgress(p.id) >= 1 ? 'text-success' : 'text-primary'">
+                {{ sessionProgress(p.id) >= 1 ? '✓ done' : '⏱ ' + sessionElapsedShort(p.id) }}
               </span>
               <span v-else-if="p.hasSession" class="text-[10px] text-base-content/30">tap to start</span>
               <span
@@ -155,6 +191,26 @@
                 reuse #{{ activeSessions[pendingProduct.id].reuseCount }}
                 · ~{{ (pendingProduct.nicotineMg * Math.pow(0.5, activeSessions[pendingProduct.id].reuseCount)).toFixed(2) }}mg available
               </div>
+            </div>
+            <!-- Duration progress bar -->
+            <div v-if="pendingProduct.releaseDurationH > 0" class="space-y-1">
+              <div class="flex justify-between text-xs">
+                <span :class="sessionProgress(pendingProduct.id) >= 1 ? 'text-success font-medium' : 'text-base-content/50'">
+                  {{ sessionProgress(pendingProduct.id) >= 1 ? '✓ run its course' : sessionTimeRemaining(pendingProduct.id) + ' remaining' }}
+                </span>
+                <span class="text-base-content/40">{{ Math.min(100, Math.round(sessionProgress(pendingProduct.id) * 100)) }}%</span>
+              </div>
+              <progress
+                class="progress w-full h-2"
+                :class="sessionProgress(pendingProduct.id) >= 1 ? 'progress-success' : 'progress-primary'"
+                :value="Math.min(sessionProgress(pendingProduct.id), 1)"
+                max="1"
+              ></progress>
+              <p class="text-xs" :class="sessionProgress(pendingProduct.id) >= 1 ? 'text-success/70 text-center' : 'text-base-content/30'">
+                {{ sessionProgress(pendingProduct.id) >= 1
+                  ? 'full ' + pendingProduct.nicotineMg.toFixed(1) + 'mg absorbed'
+                  : '~' + sessionEstimatedDose(pendingProduct.id) + 'mg absorbed if removed now' }}
+              </p>
             </div>
             <!-- Gum: spit vs swallow -->
             <template v-if="pendingProduct.hasSwallowOption">
@@ -1060,6 +1116,36 @@ function sessionElapsedShort(productId) {
   const m = Math.floor((s % 3600) / 60)
   if (h > 0) return `${h}h${String(m).padStart(2, '0')}m`
   return `${m}m`
+}
+
+const hasActiveSessions = computed(() => Object.keys(activeSessions.value).length > 0)
+
+function productById(id) {
+  return products.value.find(p => p.id === id) ?? null
+}
+
+function sessionProgress(productId) {
+  const session = activeSessions.value[productId]
+  const p = products.value.find(x => x.id === productId)
+  if (!session || !p || !p.releaseDurationH) return 0
+  return (now.value - session.startTs) / (p.releaseDurationH * 3_600_000)
+}
+
+function sessionTimeRemaining(productId) {
+  const session = activeSessions.value[productId]
+  const p = products.value.find(x => x.id === productId)
+  if (!session || !p || !p.releaseDurationH) return ''
+  const remainingMs = session.startTs + p.releaseDurationH * 3_600_000 - now.value
+  return remainingMs > 0 ? formatDuration(remainingMs) : null
+}
+
+function sessionEstimatedDose(productId) {
+  const session = activeSessions.value[productId]
+  const p = products.value.find(x => x.id === productId)
+  if (!session || !p) return '0'
+  const elapsedH = (now.value - session.startTs) / 3_600_000
+  const mg = p.nicotineMg * Math.min(1, elapsedH / (p.releaseDurationH || 1)) * Math.pow(0.5, session.reuseCount || 0)
+  return mg.toFixed(2)
 }
 
 // ─── Logging ─────────────────────────────────────────────────────────────────
