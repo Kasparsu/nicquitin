@@ -55,11 +55,28 @@
           <div class="flex justify-between items-center min-h-[1.5rem]">
             <div class="flex items-center gap-2">
               <div class="badge badge-primary badge-sm">Lv.{{ level }}</div>
-              <span class="text-xs text-base-content/50">{{ progressState.totalBeats }} beats</span>
+              <span class="text-xs text-base-content/50">
+                {{ progressState.totalBeats }}
+                <template v-if="progressState.totalAttempts > 0">/{{ progressState.totalAttempts }}</template>
+                beats
+              </span>
             </div>
             <div v-if="progressState.currentStreak >= 2" class="badge badge-warning badge-sm gap-1">
               🔥 {{ progressState.currentStreak }} streak
             </div>
+          </div>
+
+          <!-- Recent outcomes row -->
+          <div v-if="recentOutcomes.length >= 3" class="flex items-center gap-1.5">
+            <span class="text-[10px] text-base-content/40 shrink-0">last {{ recentOutcomes.length }}</span>
+            <div class="flex gap-0.5">
+              <span
+                v-for="(hit, i) in recentOutcomes" :key="i"
+                class="w-2 h-2 rounded-full"
+                :class="hit ? 'bg-success' : 'bg-error/60'"
+              ></span>
+            </div>
+            <span class="text-[10px] ml-auto" :class="recentDifficulty?.color">{{ recentDifficulty?.label }}</span>
           </div>
 
           <!-- Big timer -->
@@ -584,9 +601,11 @@ const profile           = ref({ ...DEFAULT_PROFILE })
 const progressState     = ref({
   multiplier:      INITIAL_MULTIPLIER,
   totalBeats:      0,
+  totalAttempts:   0,
   currentStreak:   0,
   bestStreak:      0,
   bestIntervalMs:  0,
+  recentOutcomes:  [],  // last 10: true=beat, false=failed
 })
 const now               = ref(Date.now())
 const showSettings      = ref(false)
@@ -765,6 +784,22 @@ const peakHours = computed(() => {
 
 const level = computed(() => progressState.value.totalBeats + 1)
 
+const recentOutcomes = computed(() => progressState.value.recentOutcomes || [])
+
+const recentSuccessRate = computed(() => {
+  const o = recentOutcomes.value
+  if (o.length < 3) return null
+  return o.filter(Boolean).length / o.length
+})
+
+const recentDifficulty = computed(() => {
+  const rate = recentSuccessRate.value
+  if (rate === null) return null
+  if (rate >= 0.7) return { label: 'dialed in',  color: 'text-success' }
+  if (rate >= 0.4) return { label: 'on track',   color: 'text-warning' }
+  return                  { label: 'easing up',  color: 'text-info'    }
+})
+
 const targetIntervalMs = computed(() =>
   avgIntervalMs.value > 0 ? avgIntervalMs.value * progressState.value.multiplier : 0
 )
@@ -799,18 +834,40 @@ const beatTimerColor = computed(() => {
 
 function checkBeat(intervalMs) {
   if (avgIntervalMs.value === 0) return
-  const target = avgIntervalMs.value * progressState.value.multiplier
-  if (intervalMs >= target) {
+  const target  = avgIntervalMs.value * progressState.value.multiplier
+  const success = intervalMs >= target
+
+  // Rolling window of last 10 outcomes
+  const outcomes = [...(progressState.value.recentOutcomes || []), success].slice(-10)
+  progressState.value.recentOutcomes = outcomes
+  progressState.value.totalAttempts  = (progressState.value.totalAttempts || 0) + 1
+
+  const recentRate = outcomes.length >= 3
+    ? outcomes.filter(Boolean).length / outcomes.length
+    : null
+
+  if (success) {
     progressState.value.totalBeats++
     progressState.value.currentStreak++
-    progressState.value.bestStreak   = Math.max(progressState.value.bestStreak, progressState.value.currentStreak)
+    progressState.value.bestStreak     = Math.max(progressState.value.bestStreak, progressState.value.currentStreak)
     progressState.value.bestIntervalMs = Math.max(progressState.value.bestIntervalMs, intervalMs)
-    progressState.value.multiplier   = Math.min(
-      parseFloat((progressState.value.multiplier + BEAT_STEP).toFixed(4)),
-      8   // cap: once the target is 8× avg it's essentially a day or more
+    // Hot streak bonus: each consecutive beat adds a little extra push (capped at +0.025)
+    const streakBonus = Math.min(progressState.value.currentStreak * 0.005, 0.025)
+    progressState.value.multiplier = Math.min(
+      parseFloat((progressState.value.multiplier + BEAT_STEP + streakBonus).toFixed(4)),
+      8   // cap: 8× avg ≈ a day or more
     )
   } else {
     progressState.value.currentStreak = 0
+    // Ease back when struggling: reduce multiplier proportional to recent failure rate
+    // Only kicks in once we have ≥3 data points and success rate < 40%
+    if (recentRate !== null && recentRate < 0.4) {
+      const reduction = BEAT_STEP * (0.4 - recentRate) / 0.4
+      progressState.value.multiplier = Math.max(
+        parseFloat((progressState.value.multiplier - reduction).toFixed(4)),
+        INITIAL_MULTIPLIER  // floor: never drop below the starting challenge
+      )
+    }
   }
   localStorage.setItem(PROGRESS_KEY, JSON.stringify(progressState.value))
 }
@@ -820,7 +877,7 @@ function checkBeat(intervalMs) {
 const habitTimeline = computed(() => {
   const avgH        = avgIntervalMs.value / 3_600_000
   const usesPerD    = usesPerDay7d.value || 1
-  const beatsPerDay = usesPerD * 0.35   // assumed 35% success rate
+  const beatsPerDay = usesPerD * (recentSuccessRate.value ?? 0.35)
 
   return HABIT_MILESTONE_DEFS.map(m => {
     const achieved  = avgH >= m.minIntervalH
