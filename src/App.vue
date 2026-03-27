@@ -454,6 +454,22 @@
 
       <button class="btn btn-outline btn-sm w-full mt-3" @click="addProduct">+ add product</button>
 
+      <!-- Import / Export -->
+      <div class="divider text-xs my-2">data</div>
+      <div class="flex gap-2">
+        <button class="btn btn-outline btn-sm flex-1" @click="exportData">⬇ export</button>
+        <label class="btn btn-outline btn-sm flex-1 cursor-pointer">
+          ⬆ import
+          <input type="file" class="hidden" accept=".json" @change="handleImport" />
+        </label>
+      </div>
+      <div v-if="importStatus === 'success'" class="text-xs text-success text-center mt-1">
+        ✓ data imported successfully
+      </div>
+      <div v-if="importStatus === 'error'" class="text-xs text-error text-center mt-1">
+        ✗ {{ importError }}
+      </div>
+
       <div class="modal-action mt-4">
         <button class="btn btn-primary" @click="saveSettings">save</button>
         <button class="btn btn-ghost" @click="closeSettings">cancel</button>
@@ -538,6 +554,8 @@ const expandedProduct   = ref(null)
 const pendingProduct    = ref(null)
 const puffCount         = ref(10)
 const refillConfirm     = ref(null)  // { productId, actualPuffs, newEstimate, nicotineMg }
+const importStatus      = ref(null)  // null | 'success' | 'error'
+const importError       = ref('')
 
 let timer = null
 
@@ -903,7 +921,58 @@ function openSettings() {
   showSettings.value     = true
 }
 
-function closeSettings() { showSettings.value = false }
+function closeSettings() { showSettings.value = false; importStatus.value = null }
+
+// ─── Import / Export ──────────────────────────────────────────────────────────
+
+function exportData() {
+  const payload = {
+    version:   1,
+    exported:  new Date().toISOString(),
+    log:       log.value,
+    products:  products.value,
+    cartridges: cartridgeSessions.value,
+    profile:   profile.value,
+    progress:  progressState.value,
+  }
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href     = url
+  a.download = `nicquitin-${new Date().toISOString().slice(0, 10)}.json`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function handleImport(event) {
+  const file = event.target.files[0]
+  event.target.value = ''
+  if (!file) return
+
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target.result)
+      if (!data.version || !Array.isArray(data.log)) throw new Error('unrecognised file format')
+
+      if (data.log)       { log.value = data.log;                                          localStorage.setItem(STORAGE_KEY,   JSON.stringify(data.log)) }
+      if (data.products)  { products.value = data.products;                                localStorage.setItem(PRODUCTS_KEY,  JSON.stringify(data.products)) }
+      if (data.cartridges){ cartridgeSessions.value = data.cartridges;                     localStorage.setItem(CARTRIDGE_KEY, JSON.stringify(data.cartridges)) }
+      if (data.profile)   { profile.value = { ...DEFAULT_PROFILE, ...data.profile };       localStorage.setItem(PROFILE_KEY,   JSON.stringify(profile.value)) }
+      if (data.progress)  { progressState.value = { ...progressState.value, ...data.progress }; localStorage.setItem(PROGRESS_KEY, JSON.stringify(progressState.value)) }
+
+      // Refresh editable copies so settings modal reflects imported data
+      editableProducts.value = products.value.map(p => ({ ...p }))
+      editableProfile.value  = { ...profile.value }
+
+      importStatus.value = 'success'
+    } catch (err) {
+      importError.value  = err.message ?? 'invalid file'
+      importStatus.value = 'error'
+    }
+  }
+  reader.readAsText(file)
+}
 
 function saveSettings() {
   products.value = editableProducts.value.map(p =>
