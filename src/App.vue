@@ -15,19 +15,13 @@
       <div class="card bg-base-100 shadow">
         <div class="card-body gap-3">
           <h2 class="card-title text-base">nicotine in body</h2>
-
           <div>
-            <progress
-              class="progress w-full h-3"
-              :class="gaugeColor"
-              :value="Math.min(nicotineLevel, GAUGE_MAX)"
-              :max="GAUGE_MAX"
-            ></progress>
+            <progress class="progress w-full h-3" :class="gaugeColor"
+              :value="Math.min(nicotineLevel, GAUGE_MAX)" :max="GAUGE_MAX"></progress>
             <div class="flex justify-between mt-1 text-xs text-base-content/40">
               <span>0 mg</span><span>{{ GAUGE_MAX }} mg</span>
             </div>
           </div>
-
           <div class="flex items-end justify-between">
             <div>
               <span class="text-4xl font-mono font-bold tabular-nums">{{ nicotineLevel.toFixed(2) }}</span>
@@ -41,39 +35,67 @@
               <div class="text-xs text-base-content/30 mt-0.5">t½ = {{ halfLifeH }}h</div>
             </div>
           </div>
-
           <div class="divider text-xs my-0">recovery milestones</div>
           <div v-if="lastUsed" class="space-y-2">
             <div v-for="m in milestones" :key="m.label" class="flex items-center gap-2 text-sm">
               <span class="shrink-0 w-5 text-center">{{ m.achieved ? '✅' : '🔘' }}</span>
-              <span class="flex-1 leading-tight" :class="m.achieved ? 'text-success' : 'text-base-content/70'">
-                {{ m.label }}
-              </span>
-              <span class="text-xs text-base-content/50 shrink-0 text-right">
-                {{ m.achieved ? m.ago : 'in ' + m.remaining }}
-              </span>
+              <span class="flex-1 leading-tight" :class="m.achieved ? 'text-success' : 'text-base-content/70'">{{ m.label }}</span>
+              <span class="text-xs text-base-content/50 shrink-0">{{ m.achieved ? m.ago : 'in ' + m.remaining }}</span>
             </div>
           </div>
-          <div v-else class="text-center text-base-content/40 text-sm py-2">
-            log usage to see milestones
-          </div>
+          <div v-else class="text-center text-base-content/40 text-sm py-2">log usage to see milestones</div>
         </div>
       </div>
 
-      <!-- Timer Card -->
+      <!-- Beat the Timer Card -->
       <div class="card bg-base-100 shadow">
-        <div class="card-body items-center text-center py-5">
-          <template v-if="lastUsed">
+        <div class="card-body gap-3 py-5">
+
+          <!-- Level + streak row -->
+          <div class="flex justify-between items-center min-h-[1.5rem]">
+            <div class="flex items-center gap-2">
+              <div class="badge badge-primary badge-sm">Lv.{{ level }}</div>
+              <span class="text-xs text-base-content/50">{{ progressState.totalBeats }} beats</span>
+            </div>
+            <div v-if="progressState.currentStreak >= 2" class="badge badge-warning badge-sm gap-1">
+              🔥 {{ progressState.currentStreak }} streak
+            </div>
+          </div>
+
+          <!-- Big timer -->
+          <div class="text-center">
             <p class="text-base-content/50 text-sm">time since last use</p>
-            <div class="text-5xl font-mono font-bold tabular-nums my-2" :class="timerColor">{{ elapsed }}</div>
-            <p class="text-base-content/40 text-xs">
+            <div v-if="lastUsed" class="text-5xl font-mono font-bold tabular-nums my-1" :class="beatTimerColor">{{ elapsed }}</div>
+            <div v-else class="text-base-content/30 text-sm py-4">no usage logged yet</div>
+            <p v-if="lastUsed" class="text-base-content/40 text-xs">
               {{ formatDateTime(lastUsed.ts) }} &mdash; {{ lastUsed.emoji }} {{ lastUsed.product }}
               <span v-if="lastUsed.puffs"> · {{ lastUsed.puffs }} puffs</span>
             </p>
+          </div>
+
+          <!-- Beat progress bar -->
+          <template v-if="lastUsed && hasEnoughData">
+            <div>
+              <div class="flex justify-between text-xs mb-1">
+                <span class="text-base-content/50">target: wait {{ formatDuration(targetIntervalMs) }}</span>
+                <span v-if="hasBeatenTarget" class="text-success font-semibold">🎉 target beaten!</span>
+                <span v-else class="text-base-content/50">{{ timeToTarget }} to go</span>
+              </div>
+              <progress
+                class="progress w-full h-2.5"
+                :class="hasBeatenTarget ? 'progress-success' : beatProgress > 0.75 ? 'progress-warning' : 'progress-error'"
+                :value="Math.min(beatProgress, 1)"
+                max="1"
+              ></progress>
+            </div>
+            <p v-if="hasBeatenTarget" class="text-xs text-base-content/40 text-center">
+              next use will level up to Lv.{{ level + 1 }} · new target: {{ formatDuration(targetIntervalMs * (1 + BEAT_STEP)) }}
+            </p>
           </template>
-          <template v-else>
-            <p class="text-base-content/40 text-sm py-4">no usage logged yet</p>
-          </template>
+          <p v-else-if="lastUsed" class="text-xs text-base-content/30 text-center">
+            log {{ Math.max(0, MIN_ENTRIES_FOR_PATTERNS - log.length) }} more uses to unlock beat targets
+          </p>
+
         </div>
       </div>
 
@@ -83,8 +105,7 @@
           <h2 class="card-title text-base">log usage</h2>
           <div class="grid grid-cols-3 gap-2">
             <button
-              v-for="p in products"
-              :key="p.id"
+              v-for="p in products" :key="p.id"
               class="btn btn-outline btn-sm flex-col h-auto py-3 gap-0.5"
               :class="pendingProduct?.id === p.id ? 'btn-primary border-primary' : ''"
               @click="selectProduct(p)"
@@ -94,64 +115,178 @@
               <span class="text-[10px] text-base-content/40">
                 {{ p.nicotineMg.toFixed(3) }}mg{{ p.hasPuffCount ? '/puff' : '' }}
               </span>
-              <!-- Cartridge remaining indicator -->
               <span
                 v-if="p.hasPuffCount && cartridgeSessions[p.id]"
                 class="text-[10px]"
                 :class="cartridgePct(p.id) < 20 ? 'text-error' : 'text-base-content/40'"
-              >
-                {{ puffsRemaining(p.id) }} left
-              </span>
+              >{{ puffsRemaining(p.id) }} left</span>
             </button>
           </div>
 
           <!-- Puff count + cartridge panel -->
           <div v-if="pendingProduct?.hasPuffCount" class="bg-base-200 rounded-xl p-4 space-y-3">
 
-            <!-- Cartridge status -->
-            <div v-if="cartridgeSessions[pendingProduct.id]" class="space-y-1">
+            <!-- Active cartridge stats -->
+            <div v-if="cartridgeSessions[pendingProduct.id] && !refillConfirm" class="space-y-1.5">
               <div class="flex justify-between items-center text-xs text-base-content/60">
                 <span>{{ pendingProduct.emoji }} cartridge</span>
-                <span>{{ puffsUsed(pendingProduct.id) }} / {{ cartridgeSessions[pendingProduct.id].totalPuffs }} puffs used</span>
+                <span
+                  :class="puffsUsed(pendingProduct.id) > cartridgeSessions[pendingProduct.id].totalPuffs ? 'text-warning' : ''"
+                >{{ puffsUsed(pendingProduct.id) }} / {{ cartridgeSessions[pendingProduct.id].totalPuffs }} puffs</span>
               </div>
               <progress
-                class="progress progress-info w-full h-2"
-                :class="cartridgePct(pendingProduct.id) < 20 ? 'progress-error' : 'progress-info'"
+                class="progress w-full h-2"
+                :class="puffsUsed(pendingProduct.id) > cartridgeSessions[pendingProduct.id].totalPuffs ? 'progress-warning' : cartridgePct(pendingProduct.id) < 20 ? 'progress-error' : 'progress-info'"
                 :value="puffsUsed(pendingProduct.id)"
                 :max="cartridgeSessions[pendingProduct.id].totalPuffs"
               ></progress>
               <div class="flex justify-between text-xs">
                 <span class="text-base-content/50">
-                  {{ puffsRemaining(pendingProduct.id) }} puffs remaining
-                  ({{ (puffsRemaining(pendingProduct.id) * pendingProduct.nicotineMg).toFixed(1) }}mg)
+                  {{ (puffsUsed(pendingProduct.id) * pendingProduct.nicotineMg).toFixed(2) }}mg consumed
+                  · {{ pendingProduct.nicotineMg.toFixed(4) }}mg/puff
                 </span>
-                <button class="text-primary underline underline-offset-2" @click="newCartridge(pendingProduct.id)">
-                  new cartridge / refill
-                </button>
+                <button class="text-primary underline underline-offset-2" @click="initiateRefill(pendingProduct.id)">refill</button>
               </div>
             </div>
-            <div v-else class="flex justify-between items-center text-xs text-base-content/50">
-              <span>no cartridge session active</span>
-              <button class="text-primary underline underline-offset-2" @click="newCartridge(pendingProduct.id)">
-                start tracking cartridge
-              </button>
+
+            <!-- No session yet -->
+            <div v-else-if="!cartridgeSessions[pendingProduct.id] && !refillConfirm" class="flex justify-between items-center text-xs text-base-content/50">
+              <span>no cartridge session</span>
+              <button class="text-primary underline underline-offset-2" @click="newCartridge(pendingProduct.id)">start tracking</button>
             </div>
 
-            <!-- Puff counter -->
+            <!-- Refill confirmation -->
+            <div v-if="refillConfirm" class="bg-base-100 rounded-xl p-3 space-y-2.5 border border-primary/30">
+              <p class="text-sm font-semibold">refill summary</p>
+              <div class="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-base-content/60">
+                <span>puffs this session</span>
+                <span class="font-mono font-medium text-base-content">{{ refillConfirm.actualPuffs }}</span>
+                <span>cartridge nicotine</span>
+                <span class="font-mono font-medium text-base-content">{{ refillConfirm.nicotineMg.toFixed(1) }}mg</span>
+                <span>actual mg/puff</span>
+                <span class="font-mono font-medium text-base-content">
+                  {{ refillConfirm.actualPuffs > 0 ? (refillConfirm.nicotineMg / refillConfirm.actualPuffs).toFixed(4) : '—' }}mg
+                </span>
+              </div>
+              <label class="form-control">
+                <div class="label py-0.5">
+                  <span class="label-text text-xs">update puff estimate for next refill</span>
+                </div>
+                <input
+                  class="input input-sm input-bordered font-mono"
+                  type="number" min="1" step="1"
+                  v-model.number="refillConfirm.newEstimate"
+                />
+                <div class="label py-0.5">
+                  <span class="label-text-alt text-xs text-base-content/40">
+                    → {{ refillConfirm.newEstimate > 0 ? (refillConfirm.nicotineMg / refillConfirm.newEstimate).toFixed(4) : '—' }}mg/puff next session
+                  </span>
+                </div>
+              </label>
+              <div class="flex gap-2">
+                <button class="btn btn-primary btn-sm flex-1" @click="confirmRefill(pendingProduct.id)">confirm refill</button>
+                <button class="btn btn-ghost btn-sm" @click="refillConfirm = null">cancel</button>
+              </div>
+            </div>
             <div class="flex items-center gap-3">
               <button class="btn btn-sm btn-circle btn-ghost text-xl font-bold" @click="puffCount = Math.max(1, puffCount - 1)">−</button>
               <div class="flex-1 text-center">
                 <div class="text-3xl font-bold font-mono tabular-nums">{{ puffCount }}</div>
-                <div class="text-xs text-base-content/50">
-                  puffs &mdash; {{ (puffCount * pendingProduct.nicotineMg).toFixed(2) }}mg
-                </div>
+                <div class="text-xs text-base-content/50">puffs &mdash; {{ (puffCount * pendingProduct.nicotineMg).toFixed(2) }}mg</div>
               </div>
               <button class="btn btn-sm btn-circle btn-ghost text-xl font-bold" @click="puffCount++">+</button>
             </div>
-
             <div class="flex gap-2">
               <button class="btn btn-primary btn-sm flex-1" @click="confirmLog">log {{ puffCount }} puffs</button>
               <button class="btn btn-ghost btn-sm" @click="pendingProduct = null">cancel</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Patterns Card -->
+      <div class="card bg-base-100 shadow" v-if="hasEnoughData">
+        <div class="card-body gap-3">
+          <h2 class="card-title text-base">patterns</h2>
+
+          <div class="grid grid-cols-3 gap-2 text-center">
+            <div class="bg-base-200 rounded-lg p-2">
+              <div class="text-sm font-bold font-mono">{{ formatDuration(avgIntervalMs) }}</div>
+              <div class="text-[10px] text-base-content/50 mt-0.5">avg interval</div>
+            </div>
+            <div class="bg-base-200 rounded-lg p-2">
+              <div class="text-sm font-bold font-mono">{{ usesPerDay7d.toFixed(1) }}<span class="text-xs font-normal">/day</span></div>
+              <div class="text-[10px] text-base-content/50 mt-0.5">frequency</div>
+            </div>
+            <div class="bg-base-200 rounded-lg p-2">
+              <div class="text-sm font-bold" :class="trendColor">{{ trendLabel }}</div>
+              <div class="text-[10px] text-base-content/50 mt-0.5">7-day trend</div>
+            </div>
+          </div>
+
+          <div v-if="peakHours.length" class="flex items-center gap-2 flex-wrap">
+            <span class="text-xs text-base-content/40">peak times</span>
+            <span v-for="ph in peakHours" :key="ph.label" class="badge badge-ghost badge-sm">{{ ph.label }}</span>
+            <span class="text-xs text-base-content/30 ml-auto">based on {{ log.length }} uses</span>
+          </div>
+
+          <div v-if="progressState.bestIntervalMs > 0" class="flex items-center justify-between text-xs text-base-content/40">
+            <span>personal best wait</span>
+            <span class="font-mono font-medium text-base-content/60">{{ formatDuration(progressState.bestIntervalMs) }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Habit Timeline Card -->
+      <div class="card bg-base-100 shadow" v-if="hasEnoughData">
+        <div class="card-body gap-3">
+          <div class="flex justify-between items-center">
+            <h2 class="card-title text-base">habit timeline</h2>
+            <span class="text-xs text-base-content/30">beat 4 in 10 to stay on track</span>
+          </div>
+
+          <div class="relative">
+            <!-- Vertical line -->
+            <div class="absolute left-[11px] top-4 bottom-4 w-0.5 bg-base-300"></div>
+
+            <div class="space-y-2">
+              <div
+                v-for="(m, i) in habitTimeline"
+                :key="m.id"
+                class="flex items-start gap-3 relative"
+              >
+                <!-- Node -->
+                <div
+                  class="w-6 h-6 rounded-full shrink-0 flex items-center justify-center text-xs font-bold z-10 mt-0.5"
+                  :class="m.achieved ? 'bg-success text-success-content' : m.isCurrent ? 'bg-primary text-primary-content ring-2 ring-primary ring-offset-2 ring-offset-base-100' : 'bg-base-300 text-base-content/40'"
+                >
+                  {{ m.achieved ? '✓' : i + 1 }}
+                </div>
+
+                <!-- Content -->
+                <div class="flex-1 pb-1">
+                  <div class="flex justify-between items-baseline">
+                    <span
+                      class="text-sm font-medium leading-tight"
+                      :class="m.achieved ? 'text-success' : m.isCurrent ? 'text-primary' : 'text-base-content/50'"
+                    >{{ m.label }}</span>
+                    <span class="text-xs text-base-content/40 shrink-0 ml-2">
+                      {{ m.achieved ? 'reached' : m.isCurrent ? 'current' : m.etaLabel }}
+                    </span>
+                  </div>
+                  <div class="text-xs text-base-content/40 mt-0.5">
+                    every {{ m.intervalLabel }} &mdash; ~{{ m.usesPerDayLabel }}/day
+                  </div>
+                  <!-- Progress bar for current milestone -->
+                  <div v-if="m.isCurrent && avgIntervalMs > 0" class="mt-1.5">
+                    <progress
+                      class="progress progress-primary w-full h-1.5"
+                      :value="Math.min(avgIntervalMs / 3600000, m.minIntervalH)"
+                      :max="m.minIntervalH"
+                    ></progress>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -190,14 +325,13 @@
   <div v-if="showSettings" class="modal modal-open">
     <div class="modal-box w-full max-w-lg">
       <div class="flex justify-between items-center mb-4">
-        <h3 class="font-bold text-lg">configure products</h3>
+        <h3 class="font-bold text-lg">configure</h3>
         <button class="btn btn-sm btn-circle btn-ghost" @click="closeSettings">✕</button>
       </div>
 
       <!-- Profile -->
       <div class="bg-base-200 rounded-xl px-4 py-3 space-y-3 mb-3">
         <div class="text-xs font-semibold text-base-content/50 uppercase tracking-wide">metabolism profile</div>
-
         <div class="grid grid-cols-2 gap-2">
           <label class="form-control">
             <div class="label py-0.5"><span class="label-text text-xs">biological sex</span></div>
@@ -215,7 +349,6 @@
             </select>
           </label>
         </div>
-
         <div class="flex flex-wrap gap-x-4 gap-y-2">
           <label class="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" class="checkbox checkbox-sm" v-model="editableProfile.menthol" />
@@ -230,7 +363,6 @@
             <span class="text-sm">Hormonal contraceptives</span>
           </label>
         </div>
-
         <div class="bg-base-100 rounded-lg px-3 py-2 flex justify-between items-center text-sm">
           <span class="text-base-content/50">adjusted half-life</span>
           <span class="font-mono font-bold">{{ previewHalfLifeH.toFixed(2) }} h</span>
@@ -239,12 +371,9 @@
 
       <div class="divider text-xs my-0">products</div>
 
-      <div class="space-y-2 max-h-[40vh] overflow-y-auto pr-1">
+      <div class="space-y-2 max-h-[40vh] overflow-y-auto pr-1 mt-2">
         <div v-for="p in editableProducts" :key="p.id" class="bg-base-200 rounded-xl">
-          <div
-            class="flex items-center justify-between px-4 py-3 cursor-pointer select-none"
-            @click="toggleExpanded(p.id)"
-          >
+          <div class="flex items-center justify-between px-4 py-3 cursor-pointer select-none" @click="toggleExpanded(p.id)">
             <div class="flex items-center gap-2">
               <span class="text-xl">{{ p.emoji }}</span>
               <span class="font-medium text-sm">{{ p.name }}</span>
@@ -258,7 +387,6 @@
               <button class="btn btn-ghost btn-xs text-error ml-1" @click.stop="deleteProduct(p.id)">✕</button>
             </div>
           </div>
-
           <div v-if="expandedProduct === p.id" class="px-4 pb-4 space-y-2 border-t border-base-300 pt-3">
             <div class="grid grid-cols-2 gap-2">
               <label class="form-control">
@@ -270,7 +398,6 @@
                 <input class="input input-sm input-bordered" v-model="p.emoji" />
               </label>
             </div>
-
             <label class="form-control">
               <div class="label py-0.5"><span class="label-text text-xs">release type</span></div>
               <select class="select select-sm select-bordered" v-model="p.releaseType">
@@ -278,26 +405,20 @@
                 <option value="slow">slow release (patches, gum, pouches)</option>
               </select>
             </label>
-
             <label v-if="p.releaseType === 'slow'" class="form-control">
               <div class="label py-0.5"><span class="label-text text-xs">release duration (hours)</span></div>
               <input class="input input-sm input-bordered" type="number" min="0.1" step="0.1" v-model.number="p.releaseDurationH" />
             </label>
-
             <div class="flex items-center gap-2 pt-1">
               <input type="checkbox" class="checkbox checkbox-sm" :id="'pc-' + p.id" v-model="p.hasPuffCount" />
               <label :for="'pc-' + p.id" class="text-sm cursor-pointer">track puff count</label>
             </div>
-
-            <!-- Cartridge calculator (puff-count products only) -->
             <template v-if="p.hasPuffCount">
               <div class="divider text-xs my-1">cartridge / pod calculator</div>
-
               <div class="flex items-center gap-2">
                 <input type="checkbox" class="checkbox checkbox-sm" :id="'cc-' + p.id" v-model="p.useCartridgeCalc" />
                 <label :for="'cc-' + p.id" class="text-sm cursor-pointer">calculate mg/puff from cartridge</label>
               </div>
-
               <template v-if="p.useCartridgeCalc">
                 <div class="grid grid-cols-2 gap-2">
                   <label class="form-control">
@@ -311,9 +432,7 @@
                 </div>
                 <div class="bg-base-100 rounded-lg px-3 py-2 text-sm flex justify-between items-center">
                   <span class="text-base-content/60">mg per puff</span>
-                  <span class="font-mono font-bold">
-                    {{ p.cartridgeTotalPuffs > 0 ? (p.cartridgeNicotineMg / p.cartridgeTotalPuffs).toFixed(4) : '—' }} mg
-                  </span>
+                  <span class="font-mono font-bold">{{ p.cartridgeTotalPuffs > 0 ? (p.cartridgeNicotineMg / p.cartridgeTotalPuffs).toFixed(4) : '—' }} mg</span>
                 </div>
               </template>
               <template v-else>
@@ -347,53 +466,35 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+
 const STORAGE_KEY    = 'nicquitin-log'
 const PRODUCTS_KEY   = 'nicquitin-products'
 const CARTRIDGE_KEY  = 'nicquitin-cartridges'
 const PROFILE_KEY    = 'nicquitin-profile'
-const BASE_HL_H      = 2       // population baseline nicotine half-life (hours)
-const CLEAN_THRESHOLD = 0.05   // mg — considered nicotine-free
-const GAUGE_MAX      = 15      // mg — full gauge scale
+const PROGRESS_KEY   = 'nicquitin-progress'
+
+const BASE_HL_H           = 2      // baseline nicotine half-life (hours)
+const CLEAN_THRESHOLD     = 0.05   // mg
+const GAUGE_MAX           = 15     // mg
+const BEAT_STEP           = 0.08   // multiplier increase per beat
+const INITIAL_MULTIPLIER  = 1.15   // 15% above avg to start
+const MIN_ENTRIES_FOR_PATTERNS = 5 // need at least this many log entries
+
+// ─── Defaults ─────────────────────────────────────────────────────────────────
 
 const DEFAULT_PROFILE = {
-  sex:             'male',    // 'male' | 'female'
-  metabolizer:     'normal',  // 'slow' | 'normal' | 'fast'
-  menthol:         false,     // inhibits CYP2A6
-  pregnant:        false,     // strongly upregulates CYP2A6
-  contraceptives:  false,     // mild upregulation (female only)
+  sex: 'male', metabolizer: 'normal',
+  menthol: false, pregnant: false, contraceptives: false,
 }
 
 const DEFAULT_PRODUCTS = [
-  {
-    id: 'cigarette', name: 'Cigarette', emoji: '🚬',
-    nicotineMg: 1.1, releaseType: 'instant', releaseDurationH: 0,
-    hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0, cartridgeTotalPuffs: 0,
-  },
-  {
-    id: 'vape', name: 'Vape', emoji: '💨',
-    nicotineMg: 0.1, releaseType: 'instant', releaseDurationH: 0,
-    hasPuffCount: true, useCartridgeCalc: true, cartridgeNicotineMg: 20, cartridgeTotalPuffs: 200,
-  },
-  {
-    id: 'patch', name: 'Patch (21mg)', emoji: '🩹',
-    nicotineMg: 14, releaseType: 'slow', releaseDurationH: 16,
-    hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0, cartridgeTotalPuffs: 0,
-  },
-  {
-    id: 'gum', name: 'Gum (4mg)', emoji: '🟡',
-    nicotineMg: 2, releaseType: 'slow', releaseDurationH: 0.5,
-    hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0, cartridgeTotalPuffs: 0,
-  },
-  {
-    id: 'pouch', name: 'Pouch', emoji: '🫙',
-    nicotineMg: 3, releaseType: 'slow', releaseDurationH: 1,
-    hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0, cartridgeTotalPuffs: 0,
-  },
-  {
-    id: 'cigar', name: 'Cigar', emoji: '🍬',
-    nicotineMg: 3, releaseType: 'instant', releaseDurationH: 0,
-    hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0, cartridgeTotalPuffs: 0,
-  },
+  { id: 'cigarette', name: 'Cigarette',    emoji: '🚬', nicotineMg: 1.1,  releaseType: 'instant', releaseDurationH: 0,   hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0,  cartridgeTotalPuffs: 0   },
+  { id: 'vape',      name: 'Vape',         emoji: '💨', nicotineMg: 0.1,  releaseType: 'instant', releaseDurationH: 0,   hasPuffCount: true,  useCartridgeCalc: true,  cartridgeNicotineMg: 20, cartridgeTotalPuffs: 200 },
+  { id: 'patch',     name: 'Patch (21mg)', emoji: '🩹', nicotineMg: 14,   releaseType: 'slow',    releaseDurationH: 16,  hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0,  cartridgeTotalPuffs: 0   },
+  { id: 'gum',       name: 'Gum (4mg)',    emoji: '🟡', nicotineMg: 2,    releaseType: 'slow',    releaseDurationH: 0.5, hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0,  cartridgeTotalPuffs: 0   },
+  { id: 'pouch',     name: 'Pouch',        emoji: '🫙', nicotineMg: 3,    releaseType: 'slow',    releaseDurationH: 1,   hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0,  cartridgeTotalPuffs: 0   },
+  { id: 'cigar',     name: 'Cigar',        emoji: '🍬', nicotineMg: 3,    releaseType: 'instant', releaseDurationH: 0,   hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0,  cartridgeTotalPuffs: 0   },
 ]
 
 const MILESTONE_DEFS = [
@@ -405,19 +506,38 @@ const MILESTONE_DEFS = [
   { label: '🏥  Heart disease risk halved',    offsetMs: 365 * 24 * 60 * 60 * 1000 },
 ]
 
-// ─── State ───────────────────────────────────────────────────────────────────
+// Habit timeline milestones (ordered lightest → heaviest so user sees where they are)
+const HABIT_MILESTONE_DEFS = [
+  { id: 'heavy',      label: 'Heavy use',     maxUsesDay: 15,   minIntervalH: 1.6,  usesPerDayLabel: '>15' },
+  { id: 'regular',    label: 'Regular',       maxUsesDay: 10,   minIntervalH: 2.4,  usesPerDayLabel: '~10' },
+  { id: 'moderate',   label: 'Moderate',      maxUsesDay: 5,    minIntervalH: 4.8,  usesPerDayLabel: '~5'  },
+  { id: 'light',      label: 'Light use',     maxUsesDay: 3,    minIntervalH: 8,    usesPerDayLabel: '~3'  },
+  { id: 'occasional', label: 'Occasional',    maxUsesDay: 1,    minIntervalH: 24,   usesPerDayLabel: '<1'  },
+  { id: 'rare',       label: 'Very rare',     maxUsesDay: 0.33, minIntervalH: 72,   usesPerDayLabel: '<1/3d' },
+  { id: 'free',       label: 'Habit free 🏆', maxUsesDay: 0,    minIntervalH: 168,  usesPerDayLabel: '~0'  },
+]
 
-const log              = ref([])
-const products         = ref([])
+// ─── State ────────────────────────────────────────────────────────────────────
+
+const log               = ref([])
+const products          = ref([])
 const cartridgeSessions = ref({})
-const profile          = ref({ ...DEFAULT_PROFILE })
-const now              = ref(Date.now())
-const showSettings     = ref(false)
-const editableProducts = ref([])
-const editableProfile  = ref({ ...DEFAULT_PROFILE })
-const expandedProduct  = ref(null)
-const pendingProduct   = ref(null)
-const puffCount        = ref(10)
+const profile           = ref({ ...DEFAULT_PROFILE })
+const progressState     = ref({
+  multiplier:      INITIAL_MULTIPLIER,
+  totalBeats:      0,
+  currentStreak:   0,
+  bestStreak:      0,
+  bestIntervalMs:  0,
+})
+const now               = ref(Date.now())
+const showSettings      = ref(false)
+const editableProducts  = ref([])
+const editableProfile   = ref({ ...DEFAULT_PROFILE })
+const expandedProduct   = ref(null)
+const pendingProduct    = ref(null)
+const puffCount         = ref(10)
+const refillConfirm     = ref(null)  // { productId, actualPuffs, newEstimate, nicotineMg }
 
 let timer = null
 
@@ -434,6 +554,9 @@ onMounted(() => {
   const savedProfile = localStorage.getItem(PROFILE_KEY)
   if (savedProfile) profile.value = { ...DEFAULT_PROFILE, ...JSON.parse(savedProfile) }
 
+  const savedProgress = localStorage.getItem(PROGRESS_KEY)
+  if (savedProgress) progressState.value = { ...progressState.value, ...JSON.parse(savedProgress) }
+
   timer = setInterval(() => { now.value = Date.now() }, 1000)
 })
 
@@ -441,33 +564,10 @@ onUnmounted(() => clearInterval(timer))
 
 // ─── Profile / adjusted half-life ────────────────────────────────────────────
 
-const halfLifeH = computed(() => {
-  const p = profile.value
-  let hl = BASE_HL_H
+const halfLifeH = computed(() => calcHalfLife(profile.value))
+const previewHalfLifeH = computed(() => calcHalfLife(editableProfile.value))
 
-  // Biological sex — women metabolize ~20% faster via CYP2A6 upregulation
-  if (p.sex === 'female') hl *= 0.83
-
-  // Pregnancy strongly upregulates CYP2A6 (~60% faster total vs male baseline)
-  // Applied on top of sex, so female+pregnant ≈ 0.83×0.78 ≈ 0.65× → ~1.3h
-  if (p.pregnant) hl *= 0.78
-
-  // Hormonal contraceptives add modest upregulation (female, non-pregnant)
-  if (p.sex === 'female' && p.contraceptives && !p.pregnant) hl *= 0.88
-
-  // CYP2A6 genetic metabolizer speed — biggest single factor
-  if (p.metabolizer === 'slow') hl *= 1.75   // ~3.5h baseline
-  if (p.metabolizer === 'fast') hl *= 0.70   // ~1.4h baseline
-
-  // Menthol inhibits CYP2A6 — slower clearance
-  if (p.menthol) hl *= 1.20
-
-  return Math.round(hl * 100) / 100
-})
-
-// Preview half-life using editableProfile (for live settings display)
-const previewHalfLifeH = computed(() => {
-  const p = editableProfile.value
+function calcHalfLife(p) {
   let hl = BASE_HL_H
   if (p.sex === 'female') hl *= 0.83
   if (p.pregnant) hl *= 0.78
@@ -476,6 +576,193 @@ const previewHalfLifeH = computed(() => {
   if (p.metabolizer === 'fast') hl *= 0.70
   if (p.menthol) hl *= 1.20
   return Math.round(hl * 100) / 100
+}
+
+// ─── Pharmacokinetics ────────────────────────────────────────────────────────
+
+function nicotineFromEntry(entry, atMs, hl = halfLifeH.value) {
+  const elapsedH = (atMs - entry.ts) / 3_600_000
+  if (elapsedH <= 0) return 0
+  const dose   = entry.nicotineMg ?? 0
+  const lambda = Math.LN2 / hl
+  if (entry.releaseType !== 'slow') return dose * Math.exp(-lambda * elapsedH)
+  const D = Math.max(entry.releaseDurationH || 1, 0.01)
+  if (elapsedH < D) return (dose / D) * (1 - Math.exp(-lambda * elapsedH)) / lambda
+  return (dose / D) * Math.exp(-lambda * (elapsedH - D)) * (1 - Math.exp(-lambda * D)) / lambda
+}
+
+const nicotineLevel = computed(() =>
+  Math.max(0, log.value.reduce((s, e) => s + nicotineFromEntry(e, now.value), 0))
+)
+
+const gaugeColor = computed(() => {
+  const r = nicotineLevel.value / GAUGE_MAX
+  if (r < 0.25) return 'progress-success'
+  if (r < 0.6)  return 'progress-warning'
+  return 'progress-error'
+})
+
+const timeUntilClean = computed(() => {
+  if (nicotineLevel.value <= CLEAN_THRESHOLD) return null
+  const STEP = 3_600_000
+  const hl = halfLifeH.value
+  let lastAbove = now.value
+  for (let i = 1; i <= 14 * 24; i++) {
+    const t = now.value + i * STEP
+    if (log.value.reduce((s, e) => s + nicotineFromEntry(e, t, hl), 0) > CLEAN_THRESHOLD) lastAbove = t
+  }
+  return formatDuration(lastAbove - now.value + STEP)
+})
+
+// ─── Pattern analysis ─────────────────────────────────────────────────────────
+
+// Consecutive intervals between uses, filtered to > 5 min (ignore rapid re-logs)
+const intervals = computed(() => {
+  const sorted = [...log.value].sort((a, b) => a.ts - b.ts)
+  const result = []
+  for (let i = 1; i < sorted.length; i++) {
+    const diff = sorted[i].ts - sorted[i - 1].ts
+    if (diff >= 5 * 60_000) result.push(diff)
+  }
+  return result
+})
+
+const hasEnoughData = computed(() => log.value.length >= MIN_ENTRIES_FOR_PATTERNS)
+
+// Average of last 20 intervals (reflects current habit, not ancient history)
+const avgIntervalMs = computed(() => {
+  const recent = intervals.value.slice(-20)
+  if (!recent.length) return 0
+  return recent.reduce((s, v) => s + v, 0) / recent.length
+})
+
+const usesPerDay7d = computed(() => {
+  const cutoff = now.value - 7 * 86_400_000
+  return log.value.filter(e => e.ts >= cutoff).length / 7
+})
+
+// Trend: compare avg interval of last 7 vs previous 7 log entries
+const trend = computed(() => {
+  const half = 7
+  const recent = intervals.value.slice(-half)
+  const prev   = intervals.value.slice(-(half * 2), -half)
+  if (recent.length < 3 || prev.length < 3) return 'neutral'
+  const rAvg = recent.reduce((s, v) => s + v, 0) / recent.length
+  const pAvg = prev.reduce((s, v) => s + v, 0) / prev.length
+  if (rAvg > pAvg * 1.1) return 'improving'
+  if (rAvg < pAvg * 0.9) return 'worsening'
+  return 'stable'
+})
+
+const trendLabel = computed(() => ({ improving: '↗ improving', worsening: '↘ slipping', stable: '→ stable', neutral: '— —' }[trend.value]))
+const trendColor = computed(() => ({ improving: 'text-success', worsening: 'text-error', stable: 'text-warning', neutral: 'text-base-content/40' }[trend.value]))
+
+// Peak 3-hour windows by usage count
+const peakHours = computed(() => {
+  if (!log.value.length) return []
+  const counts = new Array(24).fill(0)
+  log.value.forEach(e => counts[new Date(e.ts).getHours()]++)
+  const blocks = []
+  for (let h = 0; h < 24; h += 3) {
+    const count = counts[h] + counts[h + 1] + counts[h + 2]
+    if (!count) continue
+    const start   = h === 0 ? 12 : h > 12 ? h - 12 : h
+    const end     = (h + 3) > 12 ? (h + 3 - 12) : (h + 3)
+    const endAmpm = (h + 3) < 12 ? 'am' : 'pm'
+    blocks.push({ label: `${start}–${end}${endAmpm}`, count })
+  }
+  return blocks.sort((a, b) => b.count - a.count).slice(0, 2)
+})
+
+// ─── Progressive beat target ──────────────────────────────────────────────────
+
+const level = computed(() => progressState.value.totalBeats + 1)
+
+const targetIntervalMs = computed(() =>
+  avgIntervalMs.value > 0 ? avgIntervalMs.value * progressState.value.multiplier : 0
+)
+
+const timeSinceLastMs = computed(() =>
+  lastUsed.value ? now.value - lastUsed.value.ts : 0
+)
+
+const beatProgress = computed(() =>
+  targetIntervalMs.value > 0 ? timeSinceLastMs.value / targetIntervalMs.value : 0
+)
+
+const hasBeatenTarget = computed(() => beatProgress.value >= 1)
+
+const timeToTarget = computed(() => {
+  const remaining = targetIntervalMs.value - timeSinceLastMs.value
+  return remaining > 0 ? formatDuration(remaining) : null
+})
+
+const beatTimerColor = computed(() => {
+  if (!hasEnoughData.value) {
+    // Fall back to original coloring when no pattern data
+    const s = timeSinceLastMs.value / 1000
+    if (s < 1800) return 'text-error'
+    if (s < 7200) return 'text-warning'
+    return 'text-success'
+  }
+  if (hasBeatenTarget.value) return 'text-success'
+  if (beatProgress.value > 0.75) return 'text-warning'
+  return 'text-error'
+})
+
+function checkBeat(intervalMs) {
+  if (avgIntervalMs.value === 0) return
+  const target = avgIntervalMs.value * progressState.value.multiplier
+  if (intervalMs >= target) {
+    progressState.value.totalBeats++
+    progressState.value.currentStreak++
+    progressState.value.bestStreak   = Math.max(progressState.value.bestStreak, progressState.value.currentStreak)
+    progressState.value.bestIntervalMs = Math.max(progressState.value.bestIntervalMs, intervalMs)
+    progressState.value.multiplier   = Math.min(
+      parseFloat((progressState.value.multiplier + BEAT_STEP).toFixed(4)),
+      8   // cap: once the target is 8× avg it's essentially a day or more
+    )
+  } else {
+    progressState.value.currentStreak = 0
+  }
+  localStorage.setItem(PROGRESS_KEY, JSON.stringify(progressState.value))
+}
+
+// ─── Habit timeline ───────────────────────────────────────────────────────────
+
+const habitTimeline = computed(() => {
+  const avgH        = avgIntervalMs.value / 3_600_000
+  const usesPerD    = usesPerDay7d.value || 1
+  const beatsPerDay = usesPerD * 0.35   // assumed 35% success rate
+
+  return HABIT_MILESTONE_DEFS.map(m => {
+    const achieved  = avgH >= m.minIntervalH
+    // "current" = the milestone the user is closest to but hasn't passed
+    const isCurrent = !achieved && avgH >= (HABIT_MILESTONE_DEFS[HABIT_MILESTONE_DEFS.indexOf(m) - 1]?.minIntervalH ?? 0)
+
+    // Levels (beats) needed to push target interval up to this milestone
+    const currentTargetH = avgH * progressState.value.multiplier
+    let beatsNeeded = 0
+    if (!achieved && currentTargetH < m.minIntervalH) {
+      beatsNeeded = Math.ceil(Math.log(m.minIntervalH / currentTargetH) / Math.log(1 + BEAT_STEP))
+    }
+
+    const daysNeeded = beatsNeeded > 0 && beatsPerDay > 0 ? beatsNeeded / beatsPerDay : 0
+    let etaLabel = ''
+    if (!achieved && daysNeeded > 0) {
+      etaLabel = daysNeeded < 7
+        ? `~${Math.round(daysNeeded)}d`
+        : daysNeeded < 60
+        ? `~${Math.round(daysNeeded / 7)}w`
+        : `~${Math.round(daysNeeded / 30)}mo`
+    }
+
+    // Human-readable interval
+    const h = m.minIntervalH
+    const intervalLabel = h < 1 ? `${Math.round(h * 60)}m` : h < 24 ? `${h}h` : h < 168 ? `${Math.round(h / 24)}d` : `${Math.round(h / 168)}w`
+
+    return { ...m, achieved, isCurrent, beatsNeeded, daysNeeded, etaLabel, intervalLabel }
+  })
 })
 
 // ─── Cartridge tracking ───────────────────────────────────────────────────────
@@ -503,64 +790,50 @@ function cartridgePct(productId) {
 function newCartridge(productId) {
   const p = products.value.find(x => x.id === productId)
   if (!p) return
-  cartridgeSessions.value = {
-    ...cartridgeSessions.value,
-    [productId]: { startTs: Date.now(), totalPuffs: p.cartridgeTotalPuffs || 200 },
-  }
+  cartridgeSessions.value = { ...cartridgeSessions.value, [productId]: { startTs: Date.now(), totalPuffs: p.cartridgeTotalPuffs || 200 } }
   localStorage.setItem(CARTRIDGE_KEY, JSON.stringify(cartridgeSessions.value))
 }
 
-// ─── Pharmacokinetics ────────────────────────────────────────────────────────
-
-function nicotineFromEntry(entry, atMs, hl = halfLifeH.value) {
-  const elapsedH = (atMs - entry.ts) / 3_600_000
-  if (elapsedH <= 0) return 0
-  const dose   = entry.nicotineMg ?? 0
-  const lambda = Math.LN2 / hl
-
-  if (entry.releaseType !== 'slow') {
-    return dose * Math.exp(-lambda * elapsedH)
+function initiateRefill(productId) {
+  const actual = puffsUsed(productId)
+  if (actual === 0) { newCartridge(productId); return }
+  const p = products.value.find(x => x.id === productId)
+  refillConfirm.value = {
+    productId,
+    actualPuffs:    actual,
+    newEstimate:    actual,   // pre-filled with actual so user just taps confirm
+    nicotineMg:     p?.cartridgeNicotineMg ?? 0,
   }
-  const D = Math.max(entry.releaseDurationH || 1, 0.01)
-  if (elapsedH < D) {
-    return (dose / D) * (1 - Math.exp(-lambda * elapsedH)) / lambda
-  }
-  return (dose / D) * Math.exp(-lambda * (elapsedH - D)) * (1 - Math.exp(-lambda * D)) / lambda
 }
 
-const nicotineLevel = computed(() =>
-  Math.max(0, log.value.reduce((sum, e) => sum + nicotineFromEntry(e, now.value), 0))
-)
-
-const gaugeColor = computed(() => {
-  const ratio = nicotineLevel.value / GAUGE_MAX
-  if (ratio < 0.25) return 'progress-success'
-  if (ratio < 0.6)  return 'progress-warning'
-  return 'progress-error'
-})
-
-const timeUntilClean = computed(() => {
-  if (nicotineLevel.value <= CLEAN_THRESHOLD) return null
-  const STEP = 3_600_000
-  const hl = halfLifeH.value
-  let lastAbove = now.value
-  for (let i = 1; i <= 14 * 24; i++) {
-    const t = now.value + i * STEP
-    const lvl = log.value.reduce((s, e) => s + nicotineFromEntry(e, t, hl), 0)
-    if (lvl > CLEAN_THRESHOLD) lastAbove = t
+function confirmRefill(productId) {
+  if (!refillConfirm.value) return
+  const p = products.value.find(x => x.id === productId)
+  if (p && refillConfirm.value.newEstimate > 0) {
+    p.cartridgeTotalPuffs = refillConfirm.value.newEstimate
+    if (p.useCartridgeCalc && p.cartridgeNicotineMg > 0) {
+      p.nicotineMg = parseFloat((p.cartridgeNicotineMg / refillConfirm.value.newEstimate).toFixed(6))
+    }
+    localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products.value))
   }
-  return formatDuration(lastAbove - now.value + STEP)
-})
+  refillConfirm.value = null
+  newCartridge(productId)
+}
 
 // ─── Logging ─────────────────────────────────────────────────────────────────
 
+const lastUsed = computed(() => log.value[0] ?? null)
+
 function selectProduct(p) {
   if (p.hasPuffCount) {
-    pendingProduct.value = pendingProduct.value?.id === p.id ? null : p
+    const closing = pendingProduct.value?.id === p.id
+    pendingProduct.value = closing ? null : p
+    if (closing || pendingProduct.value?.id !== refillConfirm.value?.productId) refillConfirm.value = null
     puffCount.value = 10
   } else {
     doLog(p, null)
     pendingProduct.value = null
+    refillConfirm.value = null
   }
 }
 
@@ -571,19 +844,20 @@ function confirmLog() {
 }
 
 function doLog(p, puffs) {
+  const prevEntry  = log.value[0]
+  const ts         = Date.now()
   const nicotineMg = puffs != null ? puffs * p.nicotineMg : p.nicotineMg
-  log.value.unshift({
-    id: Date.now(),
-    productId: p.id,
-    product: p.name,
-    emoji: p.emoji,
-    nicotineMg,
-    releaseType: p.releaseType,
-    releaseDurationH: p.releaseDurationH,
-    puffs,
-    ts: Date.now(),
-  })
+
+  log.value.unshift({ id: ts, productId: p.id, product: p.name, emoji: p.emoji, nicotineMg, releaseType: p.releaseType, releaseDurationH: p.releaseDurationH, puffs, ts })
   localStorage.setItem(STORAGE_KEY, JSON.stringify(log.value))
+
+  // Check beat AFTER inserting (avgIntervalMs still reflects pre-insert state
+  // since it uses log.value which hasn't triggered the computed yet — but we
+  // need the interval before insert, so compute it directly)
+  if (prevEntry && hasEnoughData.value) {
+    const interval = ts - prevEntry.ts
+    if (interval >= 5 * 60_000) checkBeat(interval)
+  }
 }
 
 function removeEntry(id) {
@@ -596,13 +870,11 @@ function clearLog() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(log.value))
 }
 
-// ─── Timer ───────────────────────────────────────────────────────────────────
-
-const lastUsed = computed(() => log.value[0] ?? null)
+// ─── Timer ────────────────────────────────────────────────────────────────────
 
 const elapsed = computed(() => {
   if (!lastUsed.value) return null
-  const s   = Math.floor((now.value - lastUsed.value.ts) / 1000)
+  const s   = Math.floor(timeSinceLastMs.value / 1000)
   const h   = Math.floor(s / 3600)
   const m   = Math.floor((s % 3600) / 60)
   const sec = s % 60
@@ -611,32 +883,18 @@ const elapsed = computed(() => {
   return `${sec}s`
 })
 
-const timerColor = computed(() => {
-  if (!lastUsed.value) return ''
-  const s = (now.value - lastUsed.value.ts) / 1000
-  if (s < 1800) return 'text-error'
-  if (s < 7200) return 'text-warning'
-  return 'text-success'
-})
-
-// ─── Milestones ──────────────────────────────────────────────────────────────
+// ─── Recovery milestones ──────────────────────────────────────────────────────
 
 const milestones = computed(() => {
   if (!lastUsed.value) return []
   return MILESTONE_DEFS.map(m => {
     const ts       = lastUsed.value.ts + m.offsetMs
     const achieved = now.value >= ts
-    return {
-      label:     m.label,
-      ts,
-      achieved,
-      remaining: achieved ? null : formatDuration(ts - now.value),
-      ago:       achieved ? relativeAgo(ts) : null,
-    }
+    return { label: m.label, ts, achieved, remaining: achieved ? null : formatDuration(ts - now.value), ago: achieved ? relativeAgo(ts) : null }
   })
 })
 
-// ─── Settings ────────────────────────────────────────────────────────────────
+// ─── Settings ─────────────────────────────────────────────────────────────────
 
 function openSettings() {
   editableProducts.value = products.value.map(p => ({ ...p }))
@@ -645,26 +903,21 @@ function openSettings() {
   showSettings.value     = true
 }
 
-function closeSettings() {
-  showSettings.value = false
-}
+function closeSettings() { showSettings.value = false }
 
 function saveSettings() {
-  products.value = editableProducts.value.map(p => {
-    if (p.hasPuffCount && p.useCartridgeCalc && p.cartridgeTotalPuffs > 0) {
-      return { ...p, nicotineMg: p.cartridgeNicotineMg / p.cartridgeTotalPuffs }
-    }
-    return p
-  })
+  products.value = editableProducts.value.map(p =>
+    p.hasPuffCount && p.useCartridgeCalc && p.cartridgeTotalPuffs > 0
+      ? { ...p, nicotineMg: p.cartridgeNicotineMg / p.cartridgeTotalPuffs }
+      : p
+  )
   profile.value = { ...editableProfile.value }
   localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products.value))
   localStorage.setItem(PROFILE_KEY, JSON.stringify(profile.value))
   showSettings.value = false
 }
 
-function toggleExpanded(id) {
-  expandedProduct.value = expandedProduct.value === id ? null : id
-}
+function toggleExpanded(id) { expandedProduct.value = expandedProduct.value === id ? null : id }
 
 function deleteProduct(id) {
   editableProducts.value = editableProducts.value.filter(p => p.id !== id)
@@ -673,39 +926,21 @@ function deleteProduct(id) {
 
 function addProduct() {
   const id = `custom-${Date.now()}`
-  editableProducts.value.push({
-    id,
-    name: 'New Product',
-    emoji: '🟣',
-    nicotineMg: 1,
-    releaseType: 'instant',
-    releaseDurationH: 1,
-    hasPuffCount: false,
-    useCartridgeCalc: false,
-    cartridgeNicotineMg: 0,
-    cartridgeTotalPuffs: 0,
-  })
+  editableProducts.value.push({ id, name: 'New Product', emoji: '🟣', nicotineMg: 1, releaseType: 'instant', releaseDurationH: 1, hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0, cartridgeTotalPuffs: 0 })
   expandedProduct.value = id
 }
 
-// ─── Formatting ──────────────────────────────────────────────────────────────
+// ─── Formatting ───────────────────────────────────────────────────────────────
 
 function formatDateTime(ts) {
-  return new Date(ts).toLocaleString(undefined, {
-    month: 'short', day: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  })
+  return new Date(ts).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 function formatDuration(ms) {
   const totalMin = Math.ceil(ms / 60_000)
   const h = Math.floor(totalMin / 60)
   const m = totalMin % 60
-  if (h >= 24) {
-    const d  = Math.floor(h / 24)
-    const rh = h % 24
-    return rh > 0 ? `${d}d ${rh}h` : `${d}d`
-  }
+  if (h >= 24) { const d = Math.floor(h / 24), rh = h % 24; return rh > 0 ? `${d}d ${rh}h` : `${d}d` }
   if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`
   return `${totalMin}m`
 }
