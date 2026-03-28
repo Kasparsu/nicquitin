@@ -1,10 +1,12 @@
 <template>
   <div v-if="show" class="modal modal-open">
-    <div class="modal-box w-full max-w-lg">
-      <div class="flex justify-between items-center mb-4">
+    <div class="modal-box w-full max-w-lg flex flex-col max-h-[90dvh] p-0">
+      <div class="flex justify-between items-center px-6 pt-5 pb-3 shrink-0">
         <h3 class="font-bold text-lg">configure</h3>
         <button class="btn btn-sm btn-circle btn-ghost" @click="close">✕</button>
       </div>
+
+      <div class="overflow-y-auto flex-1 px-6 pb-2">
 
       <!-- Profile -->
       <div class="bg-base-200 rounded-xl px-4 py-3 space-y-3 mb-3">
@@ -209,7 +211,9 @@
         <div v-if="syncStore.error" class="text-xs text-error text-center">✗ {{ syncStore.error }}</div>
       </div>
 
-      <div class="modal-action mt-4">
+      </div><!-- end scrollable -->
+
+      <div class="modal-action mt-0 px-6 py-4 border-t border-base-300 shrink-0">
         <button class="btn btn-primary" @click="save">save</button>
         <button class="btn btn-ghost" @click="close">cancel</button>
       </div>
