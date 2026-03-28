@@ -35,6 +35,7 @@ import { useProductsStore } from './stores/products.js'
 import { useSessionsStore } from './stores/sessions.js'
 import { useProgressStore } from './stores/progress.js'
 import { useNicotineStore } from './stores/nicotine.js'
+import { useSyncStore }     from './stores/sync.js'
 
 import NicotineCard      from './components/NicotineCard.vue'
 import BeatCard          from './components/BeatCard.vue'
@@ -53,6 +54,7 @@ const profileStore  = useProfileStore()
 const productsStore = useProductsStore()
 const progressStore = useProgressStore()
 const sessionsStore = useSessionsStore()
+const syncStore     = useSyncStore()
 useNicotineStore()  // initialise so computed deps are wired up
 
 onMounted(() => {
@@ -62,6 +64,7 @@ onMounted(() => {
   productsStore.load()
   progressStore.load()
   sessionsStore.load()
+  syncStore.load()
 })
 
 onUnmounted(() => timeStore.stop())

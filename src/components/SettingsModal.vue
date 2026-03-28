@@ -147,6 +147,68 @@
         ✗ {{ importError }}
       </div>
 
+      <!-- GitHub Sync -->
+      <div class="divider text-xs my-2">github sync</div>
+      <div class="space-y-2">
+
+        <!-- Not connected -->
+        <template v-if="!syncStore.isConfigured && syncStore.oauthStep === 'idle'">
+          <button class="btn btn-outline btn-sm w-full" @click="syncStore.startOAuth()">
+            Connect GitHub account
+          </button>
+          <p class="text-[10px] text-base-content/40 text-center">
+            Syncs your data to a private GitHub Gist. Stored locally only.
+          </p>
+        </template>
+
+        <!-- Popup OAuth: waiting for user to complete in popup -->
+        <template v-else-if="syncStore.oauthStep === 'waiting'">
+          <div class="bg-base-200 rounded-xl px-4 py-3 space-y-3">
+            <div class="flex items-center gap-2 text-sm">
+              <span class="loading loading-spinner loading-xs"></span>
+              Complete authorization in the popup window…
+            </div>
+            <button class="btn btn-ghost btn-xs w-full" @click="syncStore.cancelOAuth()">cancel</button>
+          </div>
+        </template>
+
+        <!-- Connected -->
+        <template v-else-if="syncStore.isConfigured">
+          <div class="bg-base-200 rounded-xl px-4 py-3 flex items-center justify-between">
+            <div>
+              <div class="text-sm font-medium">✓ Connected to GitHub</div>
+              <div v-if="syncStore.lastSynced" class="text-[10px] text-base-content/40 mt-0.5">
+                last synced {{ new Date(syncStore.lastSynced).toLocaleString() }}
+                <span v-if="syncStore.gistId" class="ml-1">· gist {{ syncStore.gistId.slice(0, 8) }}…</span>
+              </div>
+            </div>
+            <button class="btn btn-ghost btn-xs text-error" @click="syncStore.clearToken()">disconnect</button>
+          </div>
+          <div class="flex gap-2">
+            <button
+              class="btn btn-sm btn-outline flex-1"
+              :disabled="syncStore.syncing"
+              @click="pushToGitHub"
+            >
+              <span v-if="syncStore.syncing && syncDirection === 'push'" class="loading loading-spinner loading-xs"></span>
+              ↑ push to github
+            </button>
+            <button
+              class="btn btn-sm btn-outline flex-1"
+              :disabled="!syncStore.hasSynced || syncStore.syncing"
+              @click="pullFromGitHub"
+            >
+              <span v-if="syncStore.syncing && syncDirection === 'pull'" class="loading loading-spinner loading-xs"></span>
+              ↓ pull from github
+            </button>
+          </div>
+          <div v-if="syncStatus === 'pushed'" class="text-xs text-success text-center">✓ pushed to github</div>
+          <div v-if="syncStatus === 'pulled'" class="text-xs text-success text-center">✓ pulled from github</div>
+        </template>
+
+        <div v-if="syncStore.error" class="text-xs text-error text-center">✗ {{ syncStore.error }}</div>
+      </div>
+
       <div class="modal-action mt-4">
         <button class="btn btn-primary" @click="save">save</button>
         <button class="btn btn-ghost" @click="close">cancel</button>
@@ -165,6 +227,7 @@ import { useProfileStore }  from '../stores/profile.js'
 import { useProductsStore } from '../stores/products.js'
 import { useSessionsStore } from '../stores/sessions.js'
 import { useProgressStore } from '../stores/progress.js'
+import { useSyncStore }     from '../stores/sync.js'
 
 const props  = defineProps({ show: Boolean })
 const emit   = defineEmits(['close'])
@@ -174,6 +237,7 @@ const profileStore  = useProfileStore()
 const productsStore = useProductsStore()
 const sessionsStore = useSessionsStore()
 const progressStore = useProgressStore()
+const syncStore     = useSyncStore()
 
 const { profile }  = storeToRefs(profileStore)
 const { products, cartridgeSessions } = storeToRefs(productsStore)
@@ -244,6 +308,46 @@ function exportData() {
   a.download = `niczero-${new Date().toISOString().slice(0, 10)}.json`
   a.click()
   URL.revokeObjectURL(url)
+}
+
+// ─── GitHub Sync ──────────────────────────────────────────────────────────────
+
+const syncStatus    = ref(null)
+const syncDirection = ref(null)
+
+async function pushToGitHub() {
+  syncDirection.value = 'push'
+  syncStatus.value    = null
+  const payload = {
+    version:       1,
+    exported:      new Date().toISOString(),
+    log:           log.value,
+    products:      products.value,
+    cartridges:    cartridgeSessions.value,
+    sessions:      activeSessions.value,
+    pouchSessions: pouchSessions.value,
+    profile:       profile.value,
+    progress:      progressState.value,
+  }
+  const ok = await syncStore.push(payload)
+  if (ok) syncStatus.value = 'pushed'
+}
+
+async function pullFromGitHub() {
+  syncDirection.value = 'pull'
+  syncStatus.value    = null
+  const data = await syncStore.pull()
+  if (!data) return
+  if (data.log)           logStore.importLog(data.log)
+  if (data.products)      productsStore.importProducts(data.products)
+  if (data.cartridges)    productsStore.importCartridges(data.cartridges)
+  if (data.sessions)      sessionsStore.importSessions(data.sessions)
+  if (data.pouchSessions) sessionsStore.importPouchSessions(data.pouchSessions)
+  if (data.profile)       profileStore.importProfile(data.profile)
+  if (data.progress)      progressStore.importProgress(data.progress)
+  editableProducts.value = products.value.map(p => ({ ...p }))
+  editableProfile.value  = { ...profile.value }
+  syncStatus.value = 'pulled'
 }
 
 function handleImport(event) {
