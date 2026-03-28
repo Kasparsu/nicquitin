@@ -46,7 +46,7 @@ import { useNicotineStore, GAUGE_MAX, CLEAN_THRESHOLD } from '../stores/nicotine
 
 const MILESTONE_DEFS = [
   { label: '❤️  Heart rate & BP drop',        offsetMs: 20  * 60 * 1000 },
-  { label: '💨  Carbon monoxide clears',       offsetMs: 12  * 60 * 60 * 1000 },
+  { label: '💨  Carbon monoxide clears',       offsetMs: 12  * 60 * 60 * 1000, requiresCombustion: true },
   { label: '🧹  Nicotine-free (3 days)',       offsetMs: 3   * 24 * 60 * 60 * 1000 },
   { label: '🩸  Circulation improves (2 wks)', offsetMs: 14  * 24 * 60 * 60 * 1000 },
   { label: '🧠  Cravings greatly reduced',     offsetMs: 90  * 24 * 60 * 60 * 1000 },
@@ -54,17 +54,27 @@ const MILESTONE_DEFS = [
 ]
 
 const time    = useTimeStore()
-const { lastUsed }               = storeToRefs(useLogStore())
+const { log, lastUsed }          = storeToRefs(useLogStore())
 const { halfLifeH }              = storeToRefs(useProfileStore())
 const { nicotineLevel, gaugeColor, timeUntilClean } = storeToRefs(useNicotineStore())
+
+// Last entry from a combustible product (cigarette, cigar, or any custom with producesCO)
+const lastCombustibleUsed = computed(() =>
+  log.value.find(e => e.producesCO === true || e.productId === 'cigarette' || e.productId === 'cigar') ?? null
+)
 
 const milestones = computed(() => {
   if (!lastUsed.value) return []
   const baseTs = lastUsed.value.stoppedTs || lastUsed.value.ts
-  return MILESTONE_DEFS.map(m => {
-    const ts       = baseTs + m.offsetMs
-    const achieved = time.now >= ts
-    return { label: m.label, ts, achieved, remaining: achieved ? null : formatDuration(ts - time.now), ago: achieved ? relativeAgo(ts, time.now) : null }
-  })
+  return MILESTONE_DEFS
+    .filter(m => !m.requiresCombustion || lastCombustibleUsed.value !== null)
+    .map(m => {
+      const entryTs = m.requiresCombustion
+        ? (lastCombustibleUsed.value.stoppedTs || lastCombustibleUsed.value.ts)
+        : baseTs
+      const ts       = entryTs + m.offsetMs
+      const achieved = time.now >= ts
+      return { label: m.label, ts, achieved, remaining: achieved ? null : formatDuration(ts - time.now), ago: achieved ? relativeAgo(ts, time.now) : null }
+    })
 })
 </script>

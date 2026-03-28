@@ -181,7 +181,7 @@ function doLog(p, puffs) {
   const ts         = Date.now()
   const nicotineMg = puffs != null ? puffs * p.nicotineMg : p.nicotineMg
 
-  logStore.addEntry({ id: ts, productId: p.id, product: p.name, emoji: p.emoji, nicotineMg, releaseType: p.releaseType, releaseDurationH: p.releaseDurationH, puffs, ts })
+  logStore.addEntry({ id: ts, productId: p.id, product: p.name, emoji: p.emoji, nicotineMg, releaseType: p.releaseType, releaseDurationH: p.releaseDurationH, puffs, ts, producesCO: p.producesCO ?? false })
 
   if (prevEntry && hasEnoughData.value) {
     const prevEnd  = prevEntry.stoppedTs || prevEntry.ts

@@ -12,8 +12,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'favicon.svg', 'apple-touch-icon-180x180.png'],
       manifest: {
-        name: 'nicquitin',
-        short_name: 'nicquitin',
+        name: 'NicZero',
+        short_name: 'NicZero',
         description: 'Track your nicotine usage and quit for good',
         theme_color: '#863bff',
         background_color: '#1d1e2b',

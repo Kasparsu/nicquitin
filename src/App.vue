@@ -5,7 +5,7 @@
       <!-- Header -->
       <div class="flex justify-between items-center pt-4 pb-2">
         <div>
-          <h1 class="text-3xl font-bold">nicquitin</h1>
+          <h1 class="text-3xl font-bold">NicZero</h1>
           <p class="text-base-content/60 text-sm">track your nicotine usage</p>
         </div>
         <button class="btn btn-ghost btn-circle" @click="showSettings = true">⚙️</button>
