@@ -81,7 +81,7 @@ export const useSyncStore = defineStore('sync', () => {
       if (event.data?.type !== 'github-oauth') return
       cleanup()
       setToken(event.data.token)
-      oauthStep.value = 'done'
+      findExistingGist().then(() => { oauthStep.value = 'done' })
     }
 
     const popupCheck = setInterval(() => {
@@ -104,6 +104,35 @@ export const useSyncStore = defineStore('sync', () => {
   function cancelOAuth() {
     if (_oauthCleanup) _oauthCleanup()
     oauthStep.value = 'idle'
+  }
+
+  // ─── Gist Discovery ────────────────────────────────────────────────────────
+
+  // After connecting on a new device, search for an existing NicZero gist so
+  // we reuse it instead of creating a duplicate.
+  async function findExistingGist() {
+    if (!token.value || gistId.value) return
+    try {
+      let page = 1
+      while (true) {
+        const res = await fetch(`https://api.github.com/gists?per_page=100&page=${page}`, {
+          headers: _headers(),
+        })
+        if (!res.ok) return
+        const gists = await res.json()
+        if (!gists.length) break
+        const match = gists.find(g => GIST_FILE in g.files)
+        if (match) {
+          gistId.value = match.id
+          _persist()
+          return
+        }
+        if (gists.length < 100) break
+        page++
+      }
+    } catch {
+      // non-critical — user can still push and it'll create a fresh gist
+    }
   }
 
   // ─── Gist Push / Pull ──────────────────────────────────────────────────────
