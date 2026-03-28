@@ -30,7 +30,8 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy oauth-worker.js --name niczero-oauth --compatibility-date 2024-01-01
+          wranglerVersion: '4'
+          command: deploy
           secrets: |
             GITHUB_CLIENT_ID
             GITHUB_CLIENT_SECRET
