@@ -596,40 +596,22 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { BASE_HL_H, CLEAN_THRESHOLD, calcHalfLife, nicotineFromEntry, computeTimeUntilCleanMs } from './lib/pharmacokinetics.js'
-import { BEAT_STEP, INITIAL_MULTIPLIER, applyBeatResult, computeRecentSuccessRate } from './lib/beat.js'
+import { storeToRefs } from 'pinia'
+import { calcHalfLife } from './lib/pharmacokinetics.js'
 import { formatDuration, formatDateTime, relativeAgo } from './lib/format.js'
-import { computeSessionProgress, computeSessionRemainingMs, computeSessionEstimatedDose, computeStopSessionDose } from './lib/session.js'
-import { computeIntervals, computeAvgInterval, computeUsesPerDay7d, computeTrend } from './lib/patterns.js'
+
+import { useTimeStore }     from './stores/time.js'
+import { useLogStore }      from './stores/log.js'
+import { useProfileStore }  from './stores/profile.js'
+import { useProductsStore } from './stores/products.js'
+import { useSessionsStore } from './stores/sessions.js'
+import { useProgressStore } from './stores/progress.js'
+import { useNicotineStore, GAUGE_MAX, CLEAN_THRESHOLD } from './stores/nicotine.js'
+import { BEAT_STEP } from './stores/progress.js'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const STORAGE_KEY    = 'nicquitin-log'
-const PRODUCTS_KEY   = 'nicquitin-products'
-const CARTRIDGE_KEY  = 'nicquitin-cartridges'
-const PROFILE_KEY    = 'nicquitin-profile'
-const PROGRESS_KEY   = 'nicquitin-progress'
-const SESSIONS_KEY      = 'nicquitin-sessions'
-const POUCH_SESSIONS_KEY = 'nicquitin-pouch-sessions'
-
-const GAUGE_MAX               = 15   // mg — progress bar ceiling
-const MIN_ENTRIES_FOR_PATTERNS = 5   // minimum log entries before patterns unlock
-
-// ─── Defaults ─────────────────────────────────────────────────────────────────
-
-const DEFAULT_PROFILE = {
-  sex: 'male', metabolizer: 'normal',
-  menthol: false, pregnant: false, contraceptives: false,
-}
-
-const DEFAULT_PRODUCTS = [
-  { id: 'cigarette', name: 'Cigarette',    emoji: '🚬', nicotineMg: 1.1,  releaseType: 'instant', releaseDurationH: 0,   hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0,  cartridgeTotalPuffs: 0,   hasSession: false, hasSwallowOption: false, hasReuseOption: false },
-  { id: 'vape',      name: 'Vape',         emoji: '💨', nicotineMg: 0.1,  releaseType: 'instant', releaseDurationH: 0,   hasPuffCount: true,  useCartridgeCalc: true,  cartridgeNicotineMg: 20, cartridgeTotalPuffs: 200, hasSession: false, hasSwallowOption: false, hasReuseOption: false },
-  { id: 'patch',     name: 'Patch (21mg)', emoji: '🩹', nicotineMg: 14,   releaseType: 'slow',    releaseDurationH: 16,  hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0,  cartridgeTotalPuffs: 0,   hasSession: true,  hasSwallowOption: false, hasReuseOption: false },
-  { id: 'gum',       name: 'Gum (4mg)',    emoji: '🟡', nicotineMg: 2,    releaseType: 'slow',    releaseDurationH: 0.5, hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0,  cartridgeTotalPuffs: 0,   hasSession: true,  hasSwallowOption: true,  hasReuseOption: false },
-  { id: 'pouch',     name: 'Pouch',        emoji: '🫙', nicotineMg: 3,    releaseType: 'slow',    releaseDurationH: 1,   hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0,  cartridgeTotalPuffs: 0,   hasSession: true,  hasSwallowOption: false, hasReuseOption: true  },
-  { id: 'cigar',     name: 'Cigar',        emoji: '🍬', nicotineMg: 3,    releaseType: 'instant', releaseDurationH: 0,   hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0,  cartridgeTotalPuffs: 0,   hasSession: false, hasSwallowOption: false, hasReuseOption: false },
-]
+const MIN_ENTRIES_FOR_PATTERNS = 5
 
 const MILESTONE_DEFS = [
   { label: '❤️  Heart rate & BP drop',        offsetMs: 20  * 60 * 1000 },
@@ -640,487 +622,93 @@ const MILESTONE_DEFS = [
   { label: '🏥  Heart disease risk halved',    offsetMs: 365 * 24 * 60 * 60 * 1000 },
 ]
 
-// Habit timeline milestones (ordered lightest → heaviest so user sees where they are)
-const HABIT_MILESTONE_DEFS = [
-  { id: 'heavy',      label: 'Heavy use',     maxUsesDay: 15,   minIntervalH: 1.6,  usesPerDayLabel: '>15' },
-  { id: 'regular',    label: 'Regular',       maxUsesDay: 10,   minIntervalH: 2.4,  usesPerDayLabel: '~10' },
-  { id: 'moderate',   label: 'Moderate',      maxUsesDay: 5,    minIntervalH: 4.8,  usesPerDayLabel: '~5'  },
-  { id: 'light',      label: 'Light use',     maxUsesDay: 3,    minIntervalH: 8,    usesPerDayLabel: '~3'  },
-  { id: 'occasional', label: 'Occasional',    maxUsesDay: 1,    minIntervalH: 24,   usesPerDayLabel: '<1'  },
-  { id: 'rare',       label: 'Very rare',     maxUsesDay: 0.33, minIntervalH: 72,   usesPerDayLabel: '<1/3d' },
-  { id: 'free',       label: 'Habit free 🏆', maxUsesDay: 0,    minIntervalH: 168,  usesPerDayLabel: '~0'  },
-]
+// ─── Store instances ──────────────────────────────────────────────────────────
 
-// ─── State ────────────────────────────────────────────────────────────────────
+const timeStore     = useTimeStore()
+const logStore      = useLogStore()
+const profileStore  = useProfileStore()
+const productsStore = useProductsStore()
+const sessionsStore = useSessionsStore()
+const progressStore = useProgressStore()
+const nicotineStore = useNicotineStore()
 
-const log               = ref([])
-const products          = ref([])
-const cartridgeSessions = ref({})
-const profile           = ref({ ...DEFAULT_PROFILE })
-const progressState     = ref({
-  multiplier:      INITIAL_MULTIPLIER,
-  totalBeats:      0,
-  totalAttempts:   0,
-  currentStreak:   0,
-  bestStreak:      0,
-  bestIntervalMs:  0,
-  recentOutcomes:  [],  // last 10: true=beat, false=failed
-})
-const now               = ref(Date.now())
-const showSettings      = ref(false)
-const editableProducts  = ref([])
-const editableProfile   = ref({ ...DEFAULT_PROFILE })
-const expandedProduct   = ref(null)
-const pendingProduct    = ref(null)
-const puffCount         = ref(10)
-const refillConfirm     = ref(null)  // { productId, actualPuffs, newEstimate, nicotineMg }
-const importStatus      = ref(null)  // null | 'success' | 'error'
-const importError       = ref('')
-const activeSessions    = ref({})    // { [productId]: { startTs, reuseCount } }
-const pouchSessions     = ref([])    // [{ id, startTs, reuseCount, activeMs, paused, lastResumeTs }]
+// ─── Reactive destructuring ───────────────────────────────────────────────────
 
-let timer = null
+const { log, lastUsed, hasEnoughData, avgIntervalMs, usesPerDay7d, trend, peakHours } = storeToRefs(logStore)
+const { profile, halfLifeH } = storeToRefs(profileStore)
+const { products, cartridgeSessions } = storeToRefs(productsStore)
+const { activeSessions, pouchSessions, hasActiveSessions } = storeToRefs(sessionsStore)
+const {
+  progressState, level, recentOutcomes, recentDifficulty,
+  targetIntervalMs, timeSinceLastMs, beatProgress, hasBeatenTarget, timeToTarget,
+  beatTimerColor, habitTimeline,
+} = storeToRefs(progressStore)
+const { nicotineLevel, gaugeColor, timeUntilClean } = storeToRefs(nicotineStore)
 
-onMounted(() => {
-  const savedLog = localStorage.getItem(STORAGE_KEY)
-  if (savedLog) log.value = JSON.parse(savedLog)
+// ─── Store method aliases ─────────────────────────────────────────────────────
 
-  const savedProducts = localStorage.getItem(PRODUCTS_KEY)
-  if (savedProducts) {
-    // Merge each saved product with the matching default so new fields (hasSession, etc.) are always present
-    const saved = JSON.parse(savedProducts)
-    products.value = saved.map(sp => {
-      const def = DEFAULT_PRODUCTS.find(d => d.id === sp.id)
-      return def ? { ...def, ...sp } : sp
-    })
-  } else {
-    products.value = DEFAULT_PRODUCTS.map(p => ({ ...p }))
-  }
+const { removeEntry, clearAll: clearLog } = logStore
+const { productById, puffsUsed, puffsRemaining, cartridgePct, newCartridge } = productsStore
+const {
+  startSession, stopSession, startPouchSession, pausePouch, resumePouch, removePouchDone,
+  sessionElapsed, sessionElapsedShort, sessionProgress, sessionTimeRemaining, sessionEstimatedDose,
+  pouchProgressVal, pouchElapsedDisplay, pouchTimeRemainingDisplay, pouchEstimatedDoseDisplay,
+} = sessionsStore
 
-  const savedCartridges = localStorage.getItem(CARTRIDGE_KEY)
-  if (savedCartridges) cartridgeSessions.value = JSON.parse(savedCartridges)
+// ─── UI-only state ────────────────────────────────────────────────────────────
 
-  const savedProfile = localStorage.getItem(PROFILE_KEY)
-  if (savedProfile) profile.value = { ...DEFAULT_PROFILE, ...JSON.parse(savedProfile) }
+const showSettings     = ref(false)
+const editableProducts = ref([])
+const editableProfile  = ref({})
+const expandedProduct  = ref(null)
+const pendingProduct   = ref(null)
+const puffCount        = ref(10)
+const refillConfirm    = ref(null)  // { productId, actualPuffs, newEstimate, nicotineMg }
+const importStatus     = ref(null)  // null | 'success' | 'error'
+const importError      = ref('')
 
-  const savedProgress = localStorage.getItem(PROGRESS_KEY)
-  if (savedProgress) progressState.value = { ...progressState.value, ...JSON.parse(savedProgress) }
+// ─── Local computeds ──────────────────────────────────────────────────────────
 
-  const savedSessions = localStorage.getItem(SESSIONS_KEY)
-  if (savedSessions) activeSessions.value = JSON.parse(savedSessions)
-
-  const savedPouch = localStorage.getItem(POUCH_SESSIONS_KEY)
-  if (savedPouch) pouchSessions.value = JSON.parse(savedPouch)
-
-  timer = setInterval(() => { now.value = Date.now() }, 1000)
-})
-
-onUnmounted(() => clearInterval(timer))
-
-// ─── Profile / adjusted half-life ────────────────────────────────────────────
-
-const halfLifeH        = computed(() => calcHalfLife(profile.value))
 const previewHalfLifeH = computed(() => calcHalfLife(editableProfile.value))
-
-// ─── Pharmacokinetics ────────────────────────────────────────────────────────
-
-// Active ms for a pouch session (excludes paused time)
-function pouchActiveMs(s, nowMs) {
-  return s.activeMs + (s.paused ? 0 : (nowMs - s.lastResumeTs))
-}
-
-// Virtual entries for currently active sessions (ongoing slow-release)
-const activeSessionEntries = computed(() => {
-  const fromSessions = Object.entries(activeSessions.value).flatMap(([productId, session]) => {
-    const p = products.value.find(x => x.id === productId)
-    if (!p) return []
-    return [{ ts: session.startTs, nicotineMg: p.nicotineMg * Math.pow(0.5, session.reuseCount || 0), releaseType: p.releaseType, releaseDurationH: p.releaseDurationH }]
-  })
-  const pouch = products.value.find(x => x.id === 'pouch')
-  const fromPouch = pouch ? pouchSessions.value
-    .filter(s => !s.paused)
-    .map(s => {
-      // Model: treat the pouch as if it started activeMs ago from now
-      const effectiveStart = now.value - pouchActiveMs(s, now.value)
-      return { ts: effectiveStart, nicotineMg: pouch.nicotineMg * Math.pow(0.5, s.reuseCount), releaseType: pouch.releaseType, releaseDurationH: pouch.releaseDurationH }
-    }) : []
-  return [...fromSessions, ...fromPouch]
-})
-
-const nicotineLevel = computed(() => {
-  const hl         = halfLifeH.value
-  const fromLog    = log.value.reduce((s, e) => s + nicotineFromEntry(e, now.value, hl), 0)
-  const fromActive = activeSessionEntries.value.reduce((s, e) => s + nicotineFromEntry(e, now.value, hl), 0)
-  return Math.max(0, fromLog + fromActive)
-})
-
-const gaugeColor = computed(() => {
-  const r = nicotineLevel.value / GAUGE_MAX
-  if (r < 0.25) return 'progress-success'
-  if (r < 0.6)  return 'progress-warning'
-  return 'progress-error'
-})
-
-const timeUntilClean = computed(() => {
-  const entries = [...log.value, ...activeSessionEntries.value]
-  const ms = computeTimeUntilCleanMs(entries, now.value, halfLifeH.value)
-  return ms != null ? formatDuration(ms) : null
-})
-
-// ─── Pattern analysis ─────────────────────────────────────────────────────────
-
-const intervals     = computed(() => computeIntervals(log.value))
-const hasEnoughData = computed(() => log.value.length >= MIN_ENTRIES_FOR_PATTERNS)
-const avgIntervalMs = computed(() => computeAvgInterval(intervals.value))
-const usesPerDay7d  = computed(() => computeUsesPerDay7d(log.value, now.value))
-const trend         = computed(() => computeTrend(intervals.value))
 
 const trendLabel = computed(() => ({ improving: '↗ improving', worsening: '↘ slipping', stable: '→ stable', neutral: '— —' }[trend.value]))
 const trendColor = computed(() => ({ improving: 'text-success', worsening: 'text-error', stable: 'text-warning', neutral: 'text-base-content/40' }[trend.value]))
 
-// Peak 3-hour windows by usage count
-const peakHours = computed(() => {
-  if (!log.value.length) return []
-  const counts = new Array(24).fill(0)
-  log.value.forEach(e => counts[new Date(e.ts).getHours()]++)
-  const blocks = []
-  for (let h = 0; h < 24; h += 3) {
-    const count = counts[h] + counts[h + 1] + counts[h + 2]
-    if (!count) continue
-    const start   = h === 0 ? 12 : h > 12 ? h - 12 : h
-    const end     = (h + 3) > 12 ? (h + 3 - 12) : (h + 3)
-    const endAmpm = (h + 3) < 12 ? 'am' : 'pm'
-    blocks.push({ label: `${start}–${end}${endAmpm}`, count })
-  }
-  return blocks.sort((a, b) => b.count - a.count).slice(0, 2)
+const elapsed = computed(() => {
+  if (!lastUsed.value) return null
+  const s   = Math.floor(timeSinceLastMs.value / 1000)
+  const h   = Math.floor(s / 3600)
+  const m   = Math.floor((s % 3600) / 60)
+  const sec = s % 60
+  if (h > 0) return `${h}h ${String(m).padStart(2,'0')}m ${String(sec).padStart(2,'0')}s`
+  if (m > 0) return `${m}m ${String(sec).padStart(2,'0')}s`
+  return `${sec}s`
 })
 
-// ─── Progressive beat target ──────────────────────────────────────────────────
-
-const level = computed(() => progressState.value.totalBeats + 1)
-
-const recentOutcomes = computed(() => progressState.value.recentOutcomes || [])
-
-const recentSuccessRate = computed(() => computeRecentSuccessRate(recentOutcomes.value))
-
-const recentDifficulty = computed(() => {
-  const rate = recentSuccessRate.value
-  if (rate === null) return null
-  if (rate >= 0.7) return { label: 'dialed in',  color: 'text-success' }
-  if (rate >= 0.4) return { label: 'on track',   color: 'text-warning' }
-  return                  { label: 'easing up',  color: 'text-info'    }
-})
-
-const targetIntervalMs = computed(() =>
-  avgIntervalMs.value > 0 ? avgIntervalMs.value * progressState.value.multiplier : 0
-)
-
-const timeSinceLastMs = computed(() =>
-  lastUsed.value ? now.value - (lastUsed.value.stoppedTs || lastUsed.value.ts) : 0
-)
-
-const beatProgress = computed(() =>
-  targetIntervalMs.value > 0 ? timeSinceLastMs.value / targetIntervalMs.value : 0
-)
-
-const hasBeatenTarget = computed(() => beatProgress.value >= 1)
-
-const timeToTarget = computed(() => {
-  const remaining = targetIntervalMs.value - timeSinceLastMs.value
-  return remaining > 0 ? formatDuration(remaining) : null
-})
-
-const beatTimerColor = computed(() => {
-  if (!hasEnoughData.value) {
-    // Fall back to original coloring when no pattern data
-    const s = timeSinceLastMs.value / 1000
-    if (s < 1800) return 'text-error'
-    if (s < 7200) return 'text-warning'
-    return 'text-success'
-  }
-  if (hasBeatenTarget.value) return 'text-success'
-  if (beatProgress.value > 0.75) return 'text-warning'
-  return 'text-error'
-})
-
-function checkBeat(intervalMs) {
-  if (avgIntervalMs.value === 0) return
-  progressState.value = applyBeatResult(intervalMs, avgIntervalMs.value, progressState.value)
-  localStorage.setItem(PROGRESS_KEY, JSON.stringify(progressState.value))
-}
-
-// ─── Habit timeline ───────────────────────────────────────────────────────────
-
-const habitTimeline = computed(() => {
-  const avgH        = avgIntervalMs.value / 3_600_000
-  const usesPerD    = usesPerDay7d.value || 1
-  const beatsPerDay = usesPerD * (recentSuccessRate.value ?? 0.35)
-
-  return HABIT_MILESTONE_DEFS.map(m => {
-    const achieved  = avgH >= m.minIntervalH
-    // "current" = the milestone the user is closest to but hasn't passed
-    const isCurrent = !achieved && avgH >= (HABIT_MILESTONE_DEFS[HABIT_MILESTONE_DEFS.indexOf(m) - 1]?.minIntervalH ?? 0)
-
-    // Levels (beats) needed to push target interval up to this milestone
-    const currentTargetH = avgH * progressState.value.multiplier
-    let beatsNeeded = 0
-    if (!achieved && currentTargetH < m.minIntervalH) {
-      beatsNeeded = Math.ceil(Math.log(m.minIntervalH / currentTargetH) / Math.log(1 + BEAT_STEP))
-    }
-
-    const daysNeeded = beatsNeeded > 0 && beatsPerDay > 0 ? beatsNeeded / beatsPerDay : 0
-    let etaLabel = ''
-    if (!achieved && daysNeeded > 0) {
-      etaLabel = daysNeeded < 7
-        ? `~${Math.round(daysNeeded)}d`
-        : daysNeeded < 60
-        ? `~${Math.round(daysNeeded / 7)}w`
-        : `~${Math.round(daysNeeded / 30)}mo`
-    }
-
-    // Human-readable interval
-    const h = m.minIntervalH
-    const intervalLabel = h < 1 ? `${Math.round(h * 60)}m` : h < 24 ? `${h}h` : h < 168 ? `${Math.round(h / 24)}d` : `${Math.round(h / 168)}w`
-
-    return { ...m, achieved, isCurrent, beatsNeeded, daysNeeded, etaLabel, intervalLabel }
+const milestones = computed(() => {
+  if (!lastUsed.value) return []
+  const baseTs = lastUsed.value.stoppedTs || lastUsed.value.ts
+  return MILESTONE_DEFS.map(m => {
+    const ts       = baseTs + m.offsetMs
+    const achieved = timeStore.now >= ts
+    return { label: m.label, ts, achieved, remaining: achieved ? null : formatDuration(ts - timeStore.now), ago: achieved ? relativeAgo(ts, timeStore.now) : null }
   })
 })
 
-// ─── Cartridge tracking ───────────────────────────────────────────────────────
+// ─── Lifecycle ────────────────────────────────────────────────────────────────
 
-function puffsUsed(productId) {
-  const session = cartridgeSessions.value[productId]
-  if (!session) return 0
-  return log.value
-    .filter(e => e.productId === productId && e.puffs != null && e.ts >= session.startTs)
-    .reduce((sum, e) => sum + e.puffs, 0)
-}
+onMounted(() => {
+  timeStore.start()
+  logStore.load()
+  profileStore.load()
+  productsStore.load()
+  progressStore.load()
+  sessionsStore.load()
+})
 
-function puffsRemaining(productId) {
-  const session = cartridgeSessions.value[productId]
-  if (!session) return 0
-  return Math.max(0, session.totalPuffs - puffsUsed(productId))
-}
-
-function cartridgePct(productId) {
-  const session = cartridgeSessions.value[productId]
-  if (!session || session.totalPuffs === 0) return 100
-  return Math.round((puffsRemaining(productId) / session.totalPuffs) * 100)
-}
-
-function newCartridge(productId) {
-  const p = products.value.find(x => x.id === productId)
-  if (!p) return
-  cartridgeSessions.value = { ...cartridgeSessions.value, [productId]: { startTs: Date.now(), totalPuffs: p.cartridgeTotalPuffs || 200 } }
-  localStorage.setItem(CARTRIDGE_KEY, JSON.stringify(cartridgeSessions.value))
-}
-
-function initiateRefill(productId) {
-  const actual = puffsUsed(productId)
-  if (actual === 0) { newCartridge(productId); return }
-  const p = products.value.find(x => x.id === productId)
-  refillConfirm.value = {
-    productId,
-    actualPuffs:    actual,
-    newEstimate:    actual,   // pre-filled with actual so user just taps confirm
-    nicotineMg:     p?.cartridgeNicotineMg ?? 0,
-  }
-}
-
-function confirmRefill(productId) {
-  if (!refillConfirm.value) return
-  const p = products.value.find(x => x.id === productId)
-  if (p && refillConfirm.value.newEstimate > 0) {
-    p.cartridgeTotalPuffs = refillConfirm.value.newEstimate
-    if (p.useCartridgeCalc && p.cartridgeNicotineMg > 0) {
-      p.nicotineMg = parseFloat((p.cartridgeNicotineMg / refillConfirm.value.newEstimate).toFixed(6))
-    }
-    localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products.value))
-  }
-  refillConfirm.value = null
-  newCartridge(productId)
-}
-
-// ─── Session tracking (patch, gum, pouch) ────────────────────────────────────
-
-function startSession(productId) {
-  activeSessions.value = { ...activeSessions.value, [productId]: { startTs: Date.now(), reuseCount: 0 } }
-  localStorage.setItem(SESSIONS_KEY, JSON.stringify(activeSessions.value))
-}
-
-function stopSession(productId, opts = {}) {
-  const session = activeSessions.value[productId]
-  if (!session) return
-  const p = products.value.find(x => x.id === productId)
-  if (!p) return
-
-  const stopTs          = Date.now()
-  const actualDurationH = (stopTs - session.startTs) / 3_600_000
-  const maxDurationH    = p.releaseDurationH || 1
-  const scaledMg        = computeStopSessionDose(session, p, stopTs, opts)
-
-  const prevEntry = log.value[0]
-  log.value.unshift({
-    id: session.startTs, productId: p.id, product: p.name, emoji: p.emoji,
-    nicotineMg: scaledMg,
-    releaseType: p.releaseType,
-    releaseDurationH: Math.min(actualDurationH, maxDurationH),
-    puffs: null,
-    ts: session.startTs, stoppedTs: stopTs,
-    reuseCount: session.reuseCount || 0,
-  })
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(log.value))
-
-  if (prevEntry && hasEnoughData.value) {
-    const prevEnd  = prevEntry.stoppedTs || prevEntry.ts
-    const interval = session.startTs - prevEnd
-    if (interval >= 5 * 60_000) checkBeat(interval)
-  }
-
-  const updated = { ...activeSessions.value }
-  delete updated[productId]
-  activeSessions.value = updated
-  localStorage.setItem(SESSIONS_KEY, JSON.stringify(activeSessions.value))
-  pendingProduct.value = null
-}
-
-function startPouchSession() {
-  const nowMs = Date.now()
-  pouchSessions.value = [...pouchSessions.value, { id: nowMs, startTs: nowMs, reuseCount: 0, activeMs: 0, paused: false, lastResumeTs: nowMs }]
-  localStorage.setItem(POUCH_SESSIONS_KEY, JSON.stringify(pouchSessions.value))
-}
-
-function pausePouch(id) {
-  const nowMs = Date.now()
-  pouchSessions.value = pouchSessions.value.map(s =>
-    s.id === id ? { ...s, paused: true, activeMs: s.activeMs + (nowMs - s.lastResumeTs) } : s
-  )
-  localStorage.setItem(POUCH_SESSIONS_KEY, JSON.stringify(pouchSessions.value))
-}
-
-function resumePouch(id) {
-  const nowMs = Date.now()
-  pouchSessions.value = pouchSessions.value.map(s =>
-    s.id === id ? { ...s, paused: false, reuseCount: s.reuseCount + 1, lastResumeTs: nowMs } : s
-  )
-  localStorage.setItem(POUCH_SESSIONS_KEY, JSON.stringify(pouchSessions.value))
-}
-
-function removePouchDone(id) {
-  const s = pouchSessions.value.find(x => x.id === id)
-  if (!s) return
-  const p = products.value.find(x => x.id === 'pouch')
-  if (!p) return
-
-  const nowMs        = Date.now()
-  const activeMs     = pouchActiveMs(s, nowMs)
-  const activeDurH   = activeMs / 3_600_000
-  const maxDurH      = p.releaseDurationH || 1
-  const scaledMg     = p.nicotineMg * Math.min(1, activeDurH / maxDurH) * Math.pow(0.5, s.reuseCount)
-
-  const prevEntry = log.value[0]
-  log.value.unshift({
-    id: s.id, productId: p.id, product: p.name, emoji: p.emoji,
-    nicotineMg: scaledMg, releaseType: p.releaseType,
-    releaseDurationH: Math.min(activeDurH, maxDurH),
-    puffs: null, ts: s.startTs, stoppedTs: nowMs,
-    reuseCount: s.reuseCount,
-  })
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(log.value))
-
-  if (prevEntry && hasEnoughData.value) {
-    const prevEnd  = prevEntry.stoppedTs || prevEntry.ts
-    const interval = s.startTs - prevEnd
-    if (interval >= 5 * 60_000) checkBeat(interval)
-  }
-
-  pouchSessions.value = pouchSessions.value.filter(x => x.id !== id)
-  localStorage.setItem(POUCH_SESSIONS_KEY, JSON.stringify(pouchSessions.value))
-}
-
-function sessionElapsed(productId) {
-  const session = activeSessions.value[productId]
-  if (!session) return ''
-  const s = Math.floor((now.value - session.startTs) / 1000)
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m`
-  return `${m}m ${String(s % 60).padStart(2, '0')}s`
-}
-
-function sessionElapsedShort(productId) {
-  const session = activeSessions.value[productId]
-  if (!session) return ''
-  const s = Math.floor((now.value - session.startTs) / 1000)
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  if (h > 0) return `${h}h${String(m).padStart(2, '0')}m`
-  return `${m}m`
-}
-
-const hasActiveSessions = computed(() =>
-  Object.keys(activeSessions.value).length > 0 || pouchSessions.value.length > 0
-)
-
-function productById(id) {
-  return products.value.find(p => p.id === id) ?? null
-}
-
-function sessionProgress(productId) {
-  const session = activeSessions.value[productId]
-  const p = products.value.find(x => x.id === productId)
-  if (!session || !p) return 0
-  return computeSessionProgress(session, p, now.value)
-}
-
-function sessionTimeRemaining(productId) {
-  const session = activeSessions.value[productId]
-  const p = products.value.find(x => x.id === productId)
-  if (!session || !p) return ''
-  const ms = computeSessionRemainingMs(session, p, now.value)
-  return ms > 0 ? formatDuration(ms) : null
-}
-
-function sessionEstimatedDose(productId) {
-  const session = activeSessions.value[productId]
-  const p = products.value.find(x => x.id === productId)
-  if (!session || !p) return '0'
-  return computeSessionEstimatedDose(session, p, now.value).toFixed(2)
-}
-
-function pouchProgressVal(s) {
-  const p = products.value.find(x => x.id === 'pouch')
-  if (!p || !p.releaseDurationH) return 0
-  return pouchActiveMs(s, now.value) / (p.releaseDurationH * 3_600_000)
-}
-
-function pouchElapsedDisplay(s) {
-  const ms = pouchActiveMs(s, now.value)
-  const sec = Math.floor(ms / 1000)
-  const h = Math.floor(sec / 3600)
-  const m = Math.floor((sec % 3600) / 60)
-  if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m`
-  return `${m}m ${String(sec % 60).padStart(2, '0')}s`
-}
-
-function pouchTimeRemainingDisplay(s) {
-  const p = products.value.find(x => x.id === 'pouch')
-  if (!p || !p.releaseDurationH) return ''
-  const remainMs = Math.max(0, p.releaseDurationH * 3_600_000 - pouchActiveMs(s, now.value))
-  return remainMs > 0 ? formatDuration(remainMs) + ' remaining' : '✓ fully absorbed'
-}
-
-function pouchEstimatedDoseDisplay(s) {
-  const p = products.value.find(x => x.id === 'pouch')
-  if (!p) return '0'
-  const activeDurH = pouchActiveMs(s, now.value) / 3_600_000
-  const maxDurH = p.releaseDurationH || 1
-  return (p.nicotineMg * Math.min(1, activeDurH / maxDurH) * Math.pow(0.5, s.reuseCount)).toFixed(2)
-}
+onUnmounted(() => timeStore.stop())
 
 // ─── Logging ─────────────────────────────────────────────────────────────────
-
-const lastUsed = computed(() => log.value[0] ?? null)
 
 function selectProduct(p) {
   if (p.id === 'pouch') {
@@ -1129,11 +717,9 @@ function selectProduct(p) {
   }
   if (p.hasSession) {
     if (!activeSessions.value[p.id]) {
-      // Start session immediately — stop controls appear in the "in use" card
       startSession(p.id)
       pendingProduct.value = null
     }
-    // If already active, do nothing — the "in use" card has the stop buttons
     return
   }
   if (p.hasPuffCount) {
@@ -1159,53 +745,29 @@ function doLog(p, puffs) {
   const ts         = Date.now()
   const nicotineMg = puffs != null ? puffs * p.nicotineMg : p.nicotineMg
 
-  log.value.unshift({ id: ts, productId: p.id, product: p.name, emoji: p.emoji, nicotineMg, releaseType: p.releaseType, releaseDurationH: p.releaseDurationH, puffs, ts })
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(log.value))
+  logStore.addEntry({ id: ts, productId: p.id, product: p.name, emoji: p.emoji, nicotineMg, releaseType: p.releaseType, releaseDurationH: p.releaseDurationH, puffs, ts })
 
-  // Check beat AFTER inserting (avgIntervalMs still reflects pre-insert state
-  // since it uses log.value which hasn't triggered the computed yet — but we
-  // need the interval before insert, so compute it directly)
   if (prevEntry && hasEnoughData.value) {
     const prevEnd  = prevEntry.stoppedTs || prevEntry.ts
     const interval = ts - prevEnd
-    if (interval >= 5 * 60_000) checkBeat(interval)
+    if (interval >= 5 * 60_000) progressStore.checkBeat(interval)
   }
 }
 
-function removeEntry(id) {
-  log.value = log.value.filter(e => e.id !== id)
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(log.value))
+// ─── Cartridge refill ─────────────────────────────────────────────────────────
+
+function initiateRefill(productId) {
+  const actual = puffsUsed(productId)
+  if (actual === 0) { newCartridge(productId); return }
+  const p = productById(productId)
+  refillConfirm.value = { productId, actualPuffs: actual, newEstimate: actual, nicotineMg: p?.cartridgeNicotineMg ?? 0 }
 }
 
-function clearLog() {
-  log.value = []
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(log.value))
+function confirmRefill(productId) {
+  if (!refillConfirm.value) return
+  productsStore.applyRefill(productId, refillConfirm.value.newEstimate)
+  refillConfirm.value = null
 }
-
-// ─── Timer ────────────────────────────────────────────────────────────────────
-
-const elapsed = computed(() => {
-  if (!lastUsed.value) return null
-  const s   = Math.floor(timeSinceLastMs.value / 1000)
-  const h   = Math.floor(s / 3600)
-  const m   = Math.floor((s % 3600) / 60)
-  const sec = s % 60
-  if (h > 0) return `${h}h ${String(m).padStart(2,'0')}m ${String(sec).padStart(2,'0')}s`
-  if (m > 0) return `${m}m ${String(sec).padStart(2,'0')}s`
-  return `${sec}s`
-})
-
-// ─── Recovery milestones ──────────────────────────────────────────────────────
-
-const milestones = computed(() => {
-  if (!lastUsed.value) return []
-  const baseTs = lastUsed.value.stoppedTs || lastUsed.value.ts
-  return MILESTONE_DEFS.map(m => {
-    const ts       = baseTs + m.offsetMs
-    const achieved = now.value >= ts
-    return { label: m.label, ts, achieved, remaining: achieved ? null : formatDuration(ts - now.value), ago: achieved ? relativeAgo(ts, now.value) : null }
-  })
-})
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
@@ -1218,15 +780,34 @@ function openSettings() {
 
 function closeSettings() { showSettings.value = false; importStatus.value = null }
 
+function saveSettings() {
+  productsStore.saveProducts(editableProducts.value)
+  profileStore.save(editableProfile.value)
+  showSettings.value = false
+}
+
+function toggleExpanded(id) { expandedProduct.value = expandedProduct.value === id ? null : id }
+
+function deleteProduct(id) {
+  editableProducts.value = editableProducts.value.filter(p => p.id !== id)
+  if (expandedProduct.value === id) expandedProduct.value = null
+}
+
+function addProduct() {
+  const id = `custom-${Date.now()}`
+  editableProducts.value.push({ id, name: 'New Product', emoji: '🟣', nicotineMg: 1, releaseType: 'instant', releaseDurationH: 1, hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0, cartridgeTotalPuffs: 0 })
+  expandedProduct.value = id
+}
+
 // ─── Import / Export ──────────────────────────────────────────────────────────
 
 function exportData() {
   const payload = {
-    version:   1,
-    exported:  new Date().toISOString(),
-    log:       log.value,
-    products:  products.value,
-    cartridges: cartridgeSessions.value,
+    version:       1,
+    exported:      new Date().toISOString(),
+    log:           log.value,
+    products:      products.value,
+    cartridges:    cartridgeSessions.value,
     sessions:      activeSessions.value,
     pouchSessions: pouchSessions.value,
     profile:       profile.value,
@@ -1252,18 +833,16 @@ function handleImport(event) {
       const data = JSON.parse(e.target.result)
       if (!data.version || !Array.isArray(data.log)) throw new Error('unrecognised file format')
 
-      if (data.log)       { log.value = data.log;                                          localStorage.setItem(STORAGE_KEY,   JSON.stringify(data.log)) }
-      if (data.products)  { products.value = data.products;                                localStorage.setItem(PRODUCTS_KEY,  JSON.stringify(data.products)) }
-      if (data.cartridges){ cartridgeSessions.value = data.cartridges;                     localStorage.setItem(CARTRIDGE_KEY, JSON.stringify(data.cartridges)) }
-      if (data.sessions)      { activeSessions.value = data.sessions;                         localStorage.setItem(SESSIONS_KEY,       JSON.stringify(data.sessions)) }
-      if (data.pouchSessions) { pouchSessions.value  = data.pouchSessions;                    localStorage.setItem(POUCH_SESSIONS_KEY, JSON.stringify(data.pouchSessions)) }
-      if (data.profile)   { profile.value = { ...DEFAULT_PROFILE, ...data.profile };       localStorage.setItem(PROFILE_KEY,   JSON.stringify(profile.value)) }
-      if (data.progress)  { progressState.value = { ...progressState.value, ...data.progress }; localStorage.setItem(PROGRESS_KEY, JSON.stringify(progressState.value)) }
+      if (data.log)           logStore.importLog(data.log)
+      if (data.products)      productsStore.importProducts(data.products)
+      if (data.cartridges)    productsStore.importCartridges(data.cartridges)
+      if (data.sessions)      sessionsStore.importSessions(data.sessions)
+      if (data.pouchSessions) sessionsStore.importPouchSessions(data.pouchSessions)
+      if (data.profile)       profileStore.importProfile(data.profile)
+      if (data.progress)      progressStore.importProgress(data.progress)
 
-      // Refresh editable copies so settings modal reflects imported data
       editableProducts.value = products.value.map(p => ({ ...p }))
       editableProfile.value  = { ...profile.value }
-
       importStatus.value = 'success'
     } catch (err) {
       importError.value  = err.message ?? 'invalid file'
@@ -1271,31 +850,6 @@ function handleImport(event) {
     }
   }
   reader.readAsText(file)
-}
-
-function saveSettings() {
-  products.value = editableProducts.value.map(p =>
-    p.hasPuffCount && p.useCartridgeCalc && p.cartridgeTotalPuffs > 0
-      ? { ...p, nicotineMg: p.cartridgeNicotineMg / p.cartridgeTotalPuffs }
-      : p
-  )
-  profile.value = { ...editableProfile.value }
-  localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products.value))
-  localStorage.setItem(PROFILE_KEY, JSON.stringify(profile.value))
-  showSettings.value = false
-}
-
-function toggleExpanded(id) { expandedProduct.value = expandedProduct.value === id ? null : id }
-
-function deleteProduct(id) {
-  editableProducts.value = editableProducts.value.filter(p => p.id !== id)
-  if (expandedProduct.value === id) expandedProduct.value = null
-}
-
-function addProduct() {
-  const id = `custom-${Date.now()}`
-  editableProducts.value.push({ id, name: 'New Product', emoji: '🟣', nicotineMg: 1, releaseType: 'instant', releaseDurationH: 1, hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0, cartridgeTotalPuffs: 0 })
-  expandedProduct.value = id
 }
 
 </script>

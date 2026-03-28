@@ -1,4 +1,5 @@
 import { beforeEach, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 
 // Provide a full localStorage mock (jsdom's implementation varies by version)
 const store = {}
@@ -14,6 +15,7 @@ global.localStorage = {
 // Reset between every test
 beforeEach(() => {
   localStorage.clear()
+  setActivePinia(createPinia())
 })
 
 // Stub browser APIs that aren't available in jsdom
