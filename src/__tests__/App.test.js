@@ -201,34 +201,62 @@ describe('gum session — spit vs swallow', () => {
   })
 })
 
-// ─── Session product — pouch reuse ───────────────────────────────────────────
+// ─── Pouch multi-session with pause ──────────────────────────────────────────
 
-describe('pouch reuse', () => {
-  async function startAndOpenPouch(wrapper) {
-    await btn(wrapper, 'Pouch')?.trigger('click')  // start
-    await flushPromises()
-    await btn(wrapper, 'Pouch')?.trigger('click')  // open stop panel
-    await flushPromises()
-  }
-
-  it('shows remove and put back options', async () => {
+describe('pouch sessions', () => {
+  it('shows pause and done buttons after starting a pouch', async () => {
     const wrapper = await mountApp()
-    await startAndOpenPouch(wrapper)
-    expect(wrapper.text()).toContain('remove, done')
-    expect(wrapper.text()).toContain('put back')
+    await btn(wrapper, 'Pouch')?.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('put in tin')
+    expect(wrapper.text()).toContain('done')
   })
 
-  it('puts back increments reuseCount and logs the previous sub-session', async () => {
+  it('allows multiple active pouches', async () => {
     const wrapper = await mountApp()
-    await startAndOpenPouch(wrapper)
-    await btn(wrapper, 'put back')?.trigger('click')
+    await btn(wrapper, 'Pouch')?.trigger('click')
     await flushPromises()
-    const sessions = JSON.parse(localStorage.getItem('nicquitin-sessions') ?? '{}')
-    expect(sessions['pouch'].reuseCount).toBe(1)
-    // Also logs the completed sub-session
+    await btn(wrapper, 'Pouch')?.trigger('click')
+    await flushPromises()
+    const stored = JSON.parse(localStorage.getItem('nicquitin-pouch-sessions') ?? '[]')
+    expect(stored).toHaveLength(2)
+  })
+
+  it('pauses a pouch (put in tin) and shows resume button', async () => {
+    const wrapper = await mountApp()
+    await btn(wrapper, 'Pouch')?.trigger('click')
+    await flushPromises()
+    await btn(wrapper, 'put in tin')?.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('put back in')
+    const stored = JSON.parse(localStorage.getItem('nicquitin-pouch-sessions') ?? '[]')
+    expect(stored[0].paused).toBe(true)
+  })
+
+  it('resuming increments reuseCount', async () => {
+    const wrapper = await mountApp()
+    await btn(wrapper, 'Pouch')?.trigger('click')
+    await flushPromises()
+    await btn(wrapper, 'put in tin')?.trigger('click')
+    await flushPromises()
+    await btn(wrapper, 'put back in')?.trigger('click')
+    await flushPromises()
+    const stored = JSON.parse(localStorage.getItem('nicquitin-pouch-sessions') ?? '[]')
+    expect(stored[0].reuseCount).toBe(1)
+    expect(stored[0].paused).toBe(false)
+  })
+
+  it('logs entry and removes session when done', async () => {
+    const wrapper = await mountApp()
+    await btn(wrapper, 'Pouch')?.trigger('click')
+    await flushPromises()
+    await btn(wrapper, 'done')?.trigger('click')
+    await flushPromises()
+    const sessions = JSON.parse(localStorage.getItem('nicquitin-pouch-sessions') ?? '[]')
+    expect(sessions).toHaveLength(0)
     const log = JSON.parse(localStorage.getItem('nicquitin-log') ?? '[]')
     expect(log).toHaveLength(1)
-    expect(log[0].reuseCount).toBe(0)
+    expect(log[0].productId).toBe('pouch')
   })
 })
 

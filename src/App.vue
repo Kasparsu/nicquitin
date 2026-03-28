@@ -120,7 +120,9 @@
       <div v-if="hasActiveSessions" class="card bg-base-100 shadow">
         <div class="card-body gap-3 py-4">
           <h2 class="card-title text-base">in use</h2>
-          <div v-for="(session, productId) in activeSessions" :key="productId" class="space-y-1.5">
+
+          <!-- Patch / Gum and other single-session products -->
+          <div v-for="(session, productId) in activeSessions" :key="productId" class="space-y-2">
             <template v-if="productById(productId)">
               <div class="flex justify-between items-center text-sm">
                 <span class="font-medium">{{ productById(productId).emoji }} {{ productById(productId).name }}</span>
@@ -145,9 +147,54 @@
                     : '~' + sessionEstimatedDose(productId) + 'mg absorbed if removed now' }}
                 </p>
               </template>
-              <button class="btn btn-outline btn-xs w-full" @click="selectProduct(productById(productId))">remove / manage</button>
+              <template v-if="productById(productId).hasSwallowOption">
+                <div class="flex gap-2 pt-1">
+                  <button class="btn btn-outline btn-sm flex-1" @click="stopSession(productId, { swallowed: false })">🚮 spit out</button>
+                  <button class="btn btn-primary btn-sm flex-1" @click="stopSession(productId, { swallowed: true })">⬇ swallow</button>
+                </div>
+              </template>
+              <template v-else>
+                <button class="btn btn-primary btn-sm w-full mt-1" @click="stopSession(productId)">remove {{ productById(productId).emoji }}</button>
+              </template>
             </template>
           </div>
+
+          <!-- Pouch sessions (multiple, pauseable) -->
+          <div v-for="s in pouchSessions" :key="s.id" class="space-y-2 pt-1" :class="{ 'opacity-60': s.paused }">
+            <div class="flex justify-between items-center text-sm">
+              <span class="font-medium">
+                🫙 Pouch
+                <span v-if="s.reuseCount > 0" class="text-warning text-xs ml-1">reuse ×{{ s.reuseCount }}</span>
+              </span>
+              <span class="font-mono text-xs" :class="s.paused ? 'text-base-content/40' : 'text-base-content/60'">
+                {{ s.paused ? '⏸ in tin' : pouchElapsedDisplay(s) }}
+              </span>
+            </div>
+            <!-- Progress bar (based on active time only) -->
+            <div class="space-y-0.5">
+              <div class="flex justify-between text-xs">
+                <span :class="pouchProgressVal(s) >= 1 ? 'text-success font-medium' : s.paused ? 'text-base-content/40' : 'text-base-content/50'">
+                  {{ pouchProgressVal(s) >= 1 ? '✓ fully absorbed' : pouchTimeRemainingDisplay(s) }}
+                </span>
+                <span class="text-base-content/40">{{ Math.min(100, Math.round(pouchProgressVal(s) * 100)) }}%</span>
+              </div>
+              <progress
+                class="progress w-full h-2"
+                :class="pouchProgressVal(s) >= 1 ? 'progress-success' : s.paused ? 'progress-warning' : 'progress-primary'"
+                :value="Math.min(pouchProgressVal(s), 1)"
+                max="1"
+              ></progress>
+              <p class="text-xs text-base-content/30">
+                ~{{ pouchEstimatedDoseDisplay(s) }}mg absorbed{{ s.paused ? ' (paused)' : ' if removed now' }}
+              </p>
+            </div>
+            <div class="flex gap-2 pt-1">
+              <button v-if="s.paused" class="btn btn-primary btn-sm flex-1" @click="resumePouch(s.id)">▶ put back in</button>
+              <button v-else class="btn btn-outline btn-sm flex-1" @click="pausePouch(s.id)">⏸ put in tin</button>
+              <button class="btn btn-error btn-outline btn-sm flex-1" @click="removePouchDone(s.id)">✓ done</button>
+            </div>
+          </div>
+
         </div>
       </div>
 
@@ -160,7 +207,9 @@
               v-for="p in products" :key="p.id"
               class="btn btn-outline btn-sm flex-col h-auto py-3 gap-0.5"
               :class="[
-                pendingProduct?.id === p.id || (p.hasSession && activeSessions[p.id]) ? 'btn-primary border-primary' : '',
+                pendingProduct?.id === p.id ? 'btn-primary border-primary' :
+                (p.id === 'pouch' && pouchSessions.length > 0) ? 'btn-success border-success opacity-70' :
+                (p.hasSession && activeSessions[p.id]) ? 'btn-success border-success opacity-70' : '',
               ]"
               @click="selectProduct(p)"
             >
@@ -169,7 +218,11 @@
               <span class="text-[10px] text-base-content/40">
                 {{ p.nicotineMg.toFixed(3) }}mg{{ p.hasPuffCount ? '/puff' : '' }}
               </span>
-              <span v-if="p.hasSession && activeSessions[p.id]" class="text-[10px] font-mono"
+              <span v-if="p.id === 'pouch' && pouchSessions.length > 0" class="text-[10px] text-primary font-mono">
+                {{ pouchSessions.length }} active · + new
+              </span>
+              <span v-else-if="p.id === 'pouch'" class="text-[10px] text-base-content/30">tap to start</span>
+              <span v-else-if="p.hasSession && activeSessions[p.id]" class="text-[10px] font-mono"
                 :class="sessionProgress(p.id) >= 1 ? 'text-success' : 'text-primary'">
                 {{ sessionProgress(p.id) >= 1 ? '✓ done' : '⏱ ' + sessionElapsedShort(p.id) }}
               </span>
@@ -182,58 +235,6 @@
             </button>
           </div>
 
-          <!-- Session stop panel (patch / gum / pouch) -->
-          <div v-if="pendingProduct?.hasSession && activeSessions[pendingProduct.id]" class="bg-base-200 rounded-xl p-4 space-y-3">
-            <div class="text-center">
-              <div class="text-2xl font-mono font-bold tabular-nums">{{ sessionElapsed(pendingProduct.id) }}</div>
-              <div class="text-xs text-base-content/50 mt-0.5">{{ pendingProduct.emoji }} {{ pendingProduct.name }} in use</div>
-              <div v-if="activeSessions[pendingProduct.id].reuseCount > 0" class="text-xs text-warning mt-1">
-                reuse #{{ activeSessions[pendingProduct.id].reuseCount }}
-                · ~{{ (pendingProduct.nicotineMg * Math.pow(0.5, activeSessions[pendingProduct.id].reuseCount)).toFixed(2) }}mg available
-              </div>
-            </div>
-            <!-- Duration progress bar -->
-            <div v-if="pendingProduct.releaseDurationH > 0" class="space-y-1">
-              <div class="flex justify-between text-xs">
-                <span :class="sessionProgress(pendingProduct.id) >= 1 ? 'text-success font-medium' : 'text-base-content/50'">
-                  {{ sessionProgress(pendingProduct.id) >= 1 ? '✓ run its course' : sessionTimeRemaining(pendingProduct.id) + ' remaining' }}
-                </span>
-                <span class="text-base-content/40">{{ Math.min(100, Math.round(sessionProgress(pendingProduct.id) * 100)) }}%</span>
-              </div>
-              <progress
-                class="progress w-full h-2"
-                :class="sessionProgress(pendingProduct.id) >= 1 ? 'progress-success' : 'progress-primary'"
-                :value="Math.min(sessionProgress(pendingProduct.id), 1)"
-                max="1"
-              ></progress>
-              <p class="text-xs" :class="sessionProgress(pendingProduct.id) >= 1 ? 'text-success/70 text-center' : 'text-base-content/30'">
-                {{ sessionProgress(pendingProduct.id) >= 1
-                  ? 'full ' + pendingProduct.nicotineMg.toFixed(1) + 'mg absorbed'
-                  : '~' + sessionEstimatedDose(pendingProduct.id) + 'mg absorbed if removed now' }}
-              </p>
-            </div>
-            <!-- Gum: spit vs swallow -->
-            <template v-if="pendingProduct.hasSwallowOption">
-              <div class="flex gap-2">
-                <button class="btn btn-outline btn-sm flex-1" @click="stopSession(pendingProduct.id, { swallowed: false })">🚮 spit out</button>
-                <button class="btn btn-primary btn-sm flex-1" @click="stopSession(pendingProduct.id, { swallowed: true })">⬇ swallow</button>
-              </div>
-            </template>
-            <!-- Pouch: done vs reuse -->
-            <template v-else-if="pendingProduct.hasReuseOption">
-              <div class="flex gap-2">
-                <button class="btn btn-primary btn-sm flex-1" @click="stopSession(pendingProduct.id)">✓ remove, done</button>
-                <button class="btn btn-outline btn-sm flex-1" @click="reusePouch(pendingProduct.id)">↩ put back</button>
-              </div>
-            </template>
-            <!-- Patch (or other): just remove -->
-            <template v-else>
-              <div class="flex gap-2">
-                <button class="btn btn-primary btn-sm flex-1" @click="stopSession(pendingProduct.id)">remove {{ pendingProduct.emoji }}</button>
-              </div>
-            </template>
-            <button class="btn btn-ghost btn-sm w-full" @click="pendingProduct = null">cancel</button>
-          </div>
 
           <!-- Puff count + cartridge panel -->
           <div v-if="pendingProduct?.hasPuffCount" class="bg-base-200 rounded-xl p-4 space-y-3">
@@ -608,7 +609,8 @@ const PRODUCTS_KEY   = 'nicquitin-products'
 const CARTRIDGE_KEY  = 'nicquitin-cartridges'
 const PROFILE_KEY    = 'nicquitin-profile'
 const PROGRESS_KEY   = 'nicquitin-progress'
-const SESSIONS_KEY   = 'nicquitin-sessions'
+const SESSIONS_KEY      = 'nicquitin-sessions'
+const POUCH_SESSIONS_KEY = 'nicquitin-pouch-sessions'
 
 const GAUGE_MAX               = 15   // mg — progress bar ceiling
 const MIN_ENTRIES_FOR_PATTERNS = 5   // minimum log entries before patterns unlock
@@ -675,6 +677,7 @@ const refillConfirm     = ref(null)  // { productId, actualPuffs, newEstimate, n
 const importStatus      = ref(null)  // null | 'success' | 'error'
 const importError       = ref('')
 const activeSessions    = ref({})    // { [productId]: { startTs, reuseCount } }
+const pouchSessions     = ref([])    // [{ id, startTs, reuseCount, activeMs, paused, lastResumeTs }]
 
 let timer = null
 
@@ -683,7 +686,16 @@ onMounted(() => {
   if (savedLog) log.value = JSON.parse(savedLog)
 
   const savedProducts = localStorage.getItem(PRODUCTS_KEY)
-  products.value = savedProducts ? JSON.parse(savedProducts) : DEFAULT_PRODUCTS.map(p => ({ ...p }))
+  if (savedProducts) {
+    // Merge each saved product with the matching default so new fields (hasSession, etc.) are always present
+    const saved = JSON.parse(savedProducts)
+    products.value = saved.map(sp => {
+      const def = DEFAULT_PRODUCTS.find(d => d.id === sp.id)
+      return def ? { ...def, ...sp } : sp
+    })
+  } else {
+    products.value = DEFAULT_PRODUCTS.map(p => ({ ...p }))
+  }
 
   const savedCartridges = localStorage.getItem(CARTRIDGE_KEY)
   if (savedCartridges) cartridgeSessions.value = JSON.parse(savedCartridges)
@@ -697,6 +709,9 @@ onMounted(() => {
   const savedSessions = localStorage.getItem(SESSIONS_KEY)
   if (savedSessions) activeSessions.value = JSON.parse(savedSessions)
 
+  const savedPouch = localStorage.getItem(POUCH_SESSIONS_KEY)
+  if (savedPouch) pouchSessions.value = JSON.parse(savedPouch)
+
   timer = setInterval(() => { now.value = Date.now() }, 1000)
 })
 
@@ -709,14 +724,28 @@ const previewHalfLifeH = computed(() => calcHalfLife(editableProfile.value))
 
 // ─── Pharmacokinetics ────────────────────────────────────────────────────────
 
+// Active ms for a pouch session (excludes paused time)
+function pouchActiveMs(s, nowMs) {
+  return s.activeMs + (s.paused ? 0 : (nowMs - s.lastResumeTs))
+}
+
 // Virtual entries for currently active sessions (ongoing slow-release)
-const activeSessionEntries = computed(() =>
-  Object.entries(activeSessions.value).flatMap(([productId, session]) => {
+const activeSessionEntries = computed(() => {
+  const fromSessions = Object.entries(activeSessions.value).flatMap(([productId, session]) => {
     const p = products.value.find(x => x.id === productId)
     if (!p) return []
     return [{ ts: session.startTs, nicotineMg: p.nicotineMg * Math.pow(0.5, session.reuseCount || 0), releaseType: p.releaseType, releaseDurationH: p.releaseDurationH }]
   })
-)
+  const pouch = products.value.find(x => x.id === 'pouch')
+  const fromPouch = pouch ? pouchSessions.value
+    .filter(s => !s.paused)
+    .map(s => {
+      // Model: treat the pouch as if it started activeMs ago from now
+      const effectiveStart = now.value - pouchActiveMs(s, now.value)
+      return { ts: effectiveStart, nicotineMg: pouch.nicotineMg * Math.pow(0.5, s.reuseCount), releaseType: pouch.releaseType, releaseDurationH: pouch.releaseDurationH }
+    }) : []
+  return [...fromSessions, ...fromPouch]
+})
 
 const nicotineLevel = computed(() => {
   const hl         = halfLifeH.value
@@ -955,34 +984,58 @@ function stopSession(productId, opts = {}) {
   pendingProduct.value = null
 }
 
-function reusePouch(productId) {
-  const session = activeSessions.value[productId]
-  if (!session) return
-  const p = products.value.find(x => x.id === productId)
+function startPouchSession() {
+  const nowMs = Date.now()
+  pouchSessions.value = [...pouchSessions.value, { id: nowMs, startTs: nowMs, reuseCount: 0, activeMs: 0, paused: false, lastResumeTs: nowMs }]
+  localStorage.setItem(POUCH_SESSIONS_KEY, JSON.stringify(pouchSessions.value))
+}
+
+function pausePouch(id) {
+  const nowMs = Date.now()
+  pouchSessions.value = pouchSessions.value.map(s =>
+    s.id === id ? { ...s, paused: true, activeMs: s.activeMs + (nowMs - s.lastResumeTs) } : s
+  )
+  localStorage.setItem(POUCH_SESSIONS_KEY, JSON.stringify(pouchSessions.value))
+}
+
+function resumePouch(id) {
+  const nowMs = Date.now()
+  pouchSessions.value = pouchSessions.value.map(s =>
+    s.id === id ? { ...s, paused: false, reuseCount: s.reuseCount + 1, lastResumeTs: nowMs } : s
+  )
+  localStorage.setItem(POUCH_SESSIONS_KEY, JSON.stringify(pouchSessions.value))
+}
+
+function removePouchDone(id) {
+  const s = pouchSessions.value.find(x => x.id === id)
+  if (!s) return
+  const p = products.value.find(x => x.id === 'pouch')
   if (!p) return
 
-  const stopTs          = Date.now()
-  const actualDurationH = (stopTs - session.startTs) / 3_600_000
-  const maxDurationH    = p.releaseDurationH || 1
-  const scaledMg        = computeStopSessionDose(session, p, stopTs)
+  const nowMs        = Date.now()
+  const activeMs     = pouchActiveMs(s, nowMs)
+  const activeDurH   = activeMs / 3_600_000
+  const maxDurH      = p.releaseDurationH || 1
+  const scaledMg     = p.nicotineMg * Math.min(1, activeDurH / maxDurH) * Math.pow(0.5, s.reuseCount)
 
-  // Log the completed sub-session
+  const prevEntry = log.value[0]
   log.value.unshift({
-    id: session.startTs, productId: p.id, product: p.name, emoji: p.emoji,
+    id: s.id, productId: p.id, product: p.name, emoji: p.emoji,
     nicotineMg: scaledMg, releaseType: p.releaseType,
-    releaseDurationH: Math.min(actualDurationH, maxDurationH),
-    puffs: null, ts: session.startTs, stoppedTs: stopTs,
-    reuseCount: session.reuseCount || 0,
+    releaseDurationH: Math.min(activeDurH, maxDurH),
+    puffs: null, ts: s.startTs, stoppedTs: nowMs,
+    reuseCount: s.reuseCount,
   })
   localStorage.setItem(STORAGE_KEY, JSON.stringify(log.value))
 
-  // Start new session immediately with incremented reuse count
-  activeSessions.value = {
-    ...activeSessions.value,
-    [productId]: { startTs: Date.now(), reuseCount: (session.reuseCount || 0) + 1 },
+  if (prevEntry && hasEnoughData.value) {
+    const prevEnd  = prevEntry.stoppedTs || prevEntry.ts
+    const interval = s.startTs - prevEnd
+    if (interval >= 5 * 60_000) checkBeat(interval)
   }
-  localStorage.setItem(SESSIONS_KEY, JSON.stringify(activeSessions.value))
-  pendingProduct.value = null
+
+  pouchSessions.value = pouchSessions.value.filter(x => x.id !== id)
+  localStorage.setItem(POUCH_SESSIONS_KEY, JSON.stringify(pouchSessions.value))
 }
 
 function sessionElapsed(productId) {
@@ -1005,7 +1058,9 @@ function sessionElapsedShort(productId) {
   return `${m}m`
 }
 
-const hasActiveSessions = computed(() => Object.keys(activeSessions.value).length > 0)
+const hasActiveSessions = computed(() =>
+  Object.keys(activeSessions.value).length > 0 || pouchSessions.value.length > 0
+)
 
 function productById(id) {
   return products.value.find(p => p.id === id) ?? null
@@ -1033,20 +1088,52 @@ function sessionEstimatedDose(productId) {
   return computeSessionEstimatedDose(session, p, now.value).toFixed(2)
 }
 
+function pouchProgressVal(s) {
+  const p = products.value.find(x => x.id === 'pouch')
+  if (!p || !p.releaseDurationH) return 0
+  return pouchActiveMs(s, now.value) / (p.releaseDurationH * 3_600_000)
+}
+
+function pouchElapsedDisplay(s) {
+  const ms = pouchActiveMs(s, now.value)
+  const sec = Math.floor(ms / 1000)
+  const h = Math.floor(sec / 3600)
+  const m = Math.floor((sec % 3600) / 60)
+  if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m`
+  return `${m}m ${String(sec % 60).padStart(2, '0')}s`
+}
+
+function pouchTimeRemainingDisplay(s) {
+  const p = products.value.find(x => x.id === 'pouch')
+  if (!p || !p.releaseDurationH) return ''
+  const remainMs = Math.max(0, p.releaseDurationH * 3_600_000 - pouchActiveMs(s, now.value))
+  return remainMs > 0 ? formatDuration(remainMs) + ' remaining' : '✓ fully absorbed'
+}
+
+function pouchEstimatedDoseDisplay(s) {
+  const p = products.value.find(x => x.id === 'pouch')
+  if (!p) return '0'
+  const activeDurH = pouchActiveMs(s, now.value) / 3_600_000
+  const maxDurH = p.releaseDurationH || 1
+  return (p.nicotineMg * Math.min(1, activeDurH / maxDurH) * Math.pow(0.5, s.reuseCount)).toFixed(2)
+}
+
 // ─── Logging ─────────────────────────────────────────────────────────────────
 
 const lastUsed = computed(() => log.value[0] ?? null)
 
 function selectProduct(p) {
+  if (p.id === 'pouch') {
+    startPouchSession()
+    return
+  }
   if (p.hasSession) {
-    if (activeSessions.value[p.id]) {
-      // Toggle stop panel
-      pendingProduct.value = pendingProduct.value?.id === p.id ? null : p
-    } else {
-      // Start session immediately
+    if (!activeSessions.value[p.id]) {
+      // Start session immediately — stop controls appear in the "in use" card
       startSession(p.id)
       pendingProduct.value = null
     }
+    // If already active, do nothing — the "in use" card has the stop buttons
     return
   }
   if (p.hasPuffCount) {
@@ -1140,9 +1227,10 @@ function exportData() {
     log:       log.value,
     products:  products.value,
     cartridges: cartridgeSessions.value,
-    sessions:  activeSessions.value,
-    profile:   profile.value,
-    progress:  progressState.value,
+    sessions:      activeSessions.value,
+    pouchSessions: pouchSessions.value,
+    profile:       profile.value,
+    progress:      progressState.value,
   }
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
   const url  = URL.createObjectURL(blob)
@@ -1167,7 +1255,8 @@ function handleImport(event) {
       if (data.log)       { log.value = data.log;                                          localStorage.setItem(STORAGE_KEY,   JSON.stringify(data.log)) }
       if (data.products)  { products.value = data.products;                                localStorage.setItem(PRODUCTS_KEY,  JSON.stringify(data.products)) }
       if (data.cartridges){ cartridgeSessions.value = data.cartridges;                     localStorage.setItem(CARTRIDGE_KEY, JSON.stringify(data.cartridges)) }
-      if (data.sessions)  { activeSessions.value = data.sessions;                          localStorage.setItem(SESSIONS_KEY,  JSON.stringify(data.sessions)) }
+      if (data.sessions)      { activeSessions.value = data.sessions;                         localStorage.setItem(SESSIONS_KEY,       JSON.stringify(data.sessions)) }
+      if (data.pouchSessions) { pouchSessions.value  = data.pouchSessions;                    localStorage.setItem(POUCH_SESSIONS_KEY, JSON.stringify(data.pouchSessions)) }
       if (data.profile)   { profile.value = { ...DEFAULT_PROFILE, ...data.profile };       localStorage.setItem(PROFILE_KEY,   JSON.stringify(profile.value)) }
       if (data.progress)  { progressState.value = { ...progressState.value, ...data.progress }; localStorage.setItem(PROGRESS_KEY, JSON.stringify(progressState.value)) }
 
