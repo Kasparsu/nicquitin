@@ -595,6 +595,11 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { BASE_HL_H, CLEAN_THRESHOLD, calcHalfLife, nicotineFromEntry, computeTimeUntilCleanMs } from './lib/pharmacokinetics.js'
+import { BEAT_STEP, INITIAL_MULTIPLIER, applyBeatResult, computeRecentSuccessRate } from './lib/beat.js'
+import { formatDuration, formatDateTime, relativeAgo } from './lib/format.js'
+import { computeSessionProgress, computeSessionRemainingMs, computeSessionEstimatedDose, computeStopSessionDose } from './lib/session.js'
+import { computeIntervals, computeAvgInterval, computeUsesPerDay7d, computeTrend } from './lib/patterns.js'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -605,12 +610,8 @@ const PROFILE_KEY    = 'nicquitin-profile'
 const PROGRESS_KEY   = 'nicquitin-progress'
 const SESSIONS_KEY   = 'nicquitin-sessions'
 
-const BASE_HL_H           = 2      // baseline nicotine half-life (hours)
-const CLEAN_THRESHOLD     = 0.05   // mg
-const GAUGE_MAX           = 15     // mg
-const BEAT_STEP           = 0.08   // multiplier increase per beat
-const INITIAL_MULTIPLIER  = 1.15   // 15% above avg to start
-const MIN_ENTRIES_FOR_PATTERNS = 5 // need at least this many log entries
+const GAUGE_MAX               = 15   // mg — progress bar ceiling
+const MIN_ENTRIES_FOR_PATTERNS = 5   // minimum log entries before patterns unlock
 
 // ─── Defaults ─────────────────────────────────────────────────────────────────
 
@@ -703,32 +704,10 @@ onUnmounted(() => clearInterval(timer))
 
 // ─── Profile / adjusted half-life ────────────────────────────────────────────
 
-const halfLifeH = computed(() => calcHalfLife(profile.value))
+const halfLifeH        = computed(() => calcHalfLife(profile.value))
 const previewHalfLifeH = computed(() => calcHalfLife(editableProfile.value))
 
-function calcHalfLife(p) {
-  let hl = BASE_HL_H
-  if (p.sex === 'female') hl *= 0.83
-  if (p.pregnant) hl *= 0.78
-  if (p.sex === 'female' && p.contraceptives && !p.pregnant) hl *= 0.88
-  if (p.metabolizer === 'slow') hl *= 1.75
-  if (p.metabolizer === 'fast') hl *= 0.70
-  if (p.menthol) hl *= 1.20
-  return Math.round(hl * 100) / 100
-}
-
 // ─── Pharmacokinetics ────────────────────────────────────────────────────────
-
-function nicotineFromEntry(entry, atMs, hl = halfLifeH.value) {
-  const elapsedH = (atMs - entry.ts) / 3_600_000
-  if (elapsedH <= 0) return 0
-  const dose   = entry.nicotineMg ?? 0
-  const lambda = Math.LN2 / hl
-  if (entry.releaseType !== 'slow') return dose * Math.exp(-lambda * elapsedH)
-  const D = Math.max(entry.releaseDurationH || 1, 0.01)
-  if (elapsedH < D) return (dose / D) * (1 - Math.exp(-lambda * elapsedH)) / lambda
-  return (dose / D) * Math.exp(-lambda * (elapsedH - D)) * (1 - Math.exp(-lambda * D)) / lambda
-}
 
 // Virtual entries for currently active sessions (ongoing slow-release)
 const activeSessionEntries = computed(() =>
@@ -740,8 +719,9 @@ const activeSessionEntries = computed(() =>
 )
 
 const nicotineLevel = computed(() => {
-  const fromLog    = log.value.reduce((s, e) => s + nicotineFromEntry(e, now.value), 0)
-  const fromActive = activeSessionEntries.value.reduce((s, e) => s + nicotineFromEntry(e, now.value), 0)
+  const hl         = halfLifeH.value
+  const fromLog    = log.value.reduce((s, e) => s + nicotineFromEntry(e, now.value, hl), 0)
+  const fromActive = activeSessionEntries.value.reduce((s, e) => s + nicotineFromEntry(e, now.value, hl), 0)
   return Math.max(0, fromLog + fromActive)
 })
 
@@ -753,68 +733,18 @@ const gaugeColor = computed(() => {
 })
 
 const timeUntilClean = computed(() => {
-  if (nicotineLevel.value <= CLEAN_THRESHOLD) return null
-  // 15-min steps over 3 days (288 steps).
-  // Nicotine is physiologically cleared in ≤3 days even for heavy use.
-  // 15-min resolution is accurate enough for display; the old 1-hour step
-  // could overshoot by up to 60 min.
-  const STEP = 15 * 60_000
-  const hl = halfLifeH.value
   const entries = [...log.value, ...activeSessionEntries.value]
-  let lastAbove = now.value
-  for (let i = 1; i <= 3 * 24 * 4; i++) {
-    const t = now.value + i * STEP
-    if (entries.reduce((s, e) => s + nicotineFromEntry(e, t, hl), 0) > CLEAN_THRESHOLD) {
-      lastAbove = t
-    }
-  }
-  // lastAbove is the last 15-min boundary still above threshold.
-  // Clean time is somewhere in (lastAbove, lastAbove + STEP], so we
-  // report the midpoint of that window rather than always the far edge.
-  return formatDuration(lastAbove - now.value + STEP / 2)
+  const ms = computeTimeUntilCleanMs(entries, now.value, halfLifeH.value)
+  return ms != null ? formatDuration(ms) : null
 })
 
 // ─── Pattern analysis ─────────────────────────────────────────────────────────
 
-// Consecutive intervals between uses, filtered to > 5 min (ignore rapid re-logs)
-const intervals = computed(() => {
-  const sorted = [...log.value].sort((a, b) => a.ts - b.ts)
-  const result = []
-  for (let i = 1; i < sorted.length; i++) {
-    // Interval starts when previous session ended (stoppedTs), not when it started
-    const prevEnd = sorted[i - 1].stoppedTs || sorted[i - 1].ts
-    const diff    = sorted[i].ts - prevEnd
-    if (diff >= 5 * 60_000) result.push(diff)
-  }
-  return result
-})
-
+const intervals     = computed(() => computeIntervals(log.value))
 const hasEnoughData = computed(() => log.value.length >= MIN_ENTRIES_FOR_PATTERNS)
-
-// Average of last 20 intervals (reflects current habit, not ancient history)
-const avgIntervalMs = computed(() => {
-  const recent = intervals.value.slice(-20)
-  if (!recent.length) return 0
-  return recent.reduce((s, v) => s + v, 0) / recent.length
-})
-
-const usesPerDay7d = computed(() => {
-  const cutoff = now.value - 7 * 86_400_000
-  return log.value.filter(e => e.ts >= cutoff).length / 7
-})
-
-// Trend: compare avg interval of last 7 vs previous 7 log entries
-const trend = computed(() => {
-  const half = 7
-  const recent = intervals.value.slice(-half)
-  const prev   = intervals.value.slice(-(half * 2), -half)
-  if (recent.length < 3 || prev.length < 3) return 'neutral'
-  const rAvg = recent.reduce((s, v) => s + v, 0) / recent.length
-  const pAvg = prev.reduce((s, v) => s + v, 0) / prev.length
-  if (rAvg > pAvg * 1.1) return 'improving'
-  if (rAvg < pAvg * 0.9) return 'worsening'
-  return 'stable'
-})
+const avgIntervalMs = computed(() => computeAvgInterval(intervals.value))
+const usesPerDay7d  = computed(() => computeUsesPerDay7d(log.value, now.value))
+const trend         = computed(() => computeTrend(intervals.value))
 
 const trendLabel = computed(() => ({ improving: '↗ improving', worsening: '↘ slipping', stable: '→ stable', neutral: '— —' }[trend.value]))
 const trendColor = computed(() => ({ improving: 'text-success', worsening: 'text-error', stable: 'text-warning', neutral: 'text-base-content/40' }[trend.value]))
@@ -842,11 +772,7 @@ const level = computed(() => progressState.value.totalBeats + 1)
 
 const recentOutcomes = computed(() => progressState.value.recentOutcomes || [])
 
-const recentSuccessRate = computed(() => {
-  const o = recentOutcomes.value
-  if (o.length < 3) return null
-  return o.filter(Boolean).length / o.length
-})
+const recentSuccessRate = computed(() => computeRecentSuccessRate(recentOutcomes.value))
 
 const recentDifficulty = computed(() => {
   const rate = recentSuccessRate.value
@@ -890,41 +816,7 @@ const beatTimerColor = computed(() => {
 
 function checkBeat(intervalMs) {
   if (avgIntervalMs.value === 0) return
-  const target  = avgIntervalMs.value * progressState.value.multiplier
-  const success = intervalMs >= target
-
-  // Rolling window of last 10 outcomes
-  const outcomes = [...(progressState.value.recentOutcomes || []), success].slice(-10)
-  progressState.value.recentOutcomes = outcomes
-  progressState.value.totalAttempts  = (progressState.value.totalAttempts || 0) + 1
-
-  const recentRate = outcomes.length >= 3
-    ? outcomes.filter(Boolean).length / outcomes.length
-    : null
-
-  if (success) {
-    progressState.value.totalBeats++
-    progressState.value.currentStreak++
-    progressState.value.bestStreak     = Math.max(progressState.value.bestStreak, progressState.value.currentStreak)
-    progressState.value.bestIntervalMs = Math.max(progressState.value.bestIntervalMs, intervalMs)
-    // Hot streak bonus: each consecutive beat adds a little extra push (capped at +0.025)
-    const streakBonus = Math.min(progressState.value.currentStreak * 0.005, 0.025)
-    progressState.value.multiplier = Math.min(
-      parseFloat((progressState.value.multiplier + BEAT_STEP + streakBonus).toFixed(4)),
-      8   // cap: 8× avg ≈ a day or more
-    )
-  } else {
-    progressState.value.currentStreak = 0
-    // Ease back when struggling: reduce multiplier proportional to recent failure rate
-    // Only kicks in once we have ≥3 data points and success rate < 40%
-    if (recentRate !== null && recentRate < 0.4) {
-      const reduction = BEAT_STEP * (0.4 - recentRate) / 0.4
-      progressState.value.multiplier = Math.max(
-        parseFloat((progressState.value.multiplier - reduction).toFixed(4)),
-        INITIAL_MULTIPLIER  // floor: never drop below the starting challenge
-      )
-    }
-  }
+  progressState.value = applyBeatResult(intervalMs, avgIntervalMs.value, progressState.value)
   localStorage.setItem(PROGRESS_KEY, JSON.stringify(progressState.value))
 }
 
@@ -1033,13 +925,10 @@ function stopSession(productId, opts = {}) {
   const p = products.value.find(x => x.id === productId)
   if (!p) return
 
-  const stopTs         = Date.now()
+  const stopTs          = Date.now()
   const actualDurationH = (stopTs - session.startTs) / 3_600_000
   const maxDurationH    = p.releaseDurationH || 1
-
-  let scaledMg = p.nicotineMg * Math.min(1, actualDurationH / maxDurationH)
-  scaledMg    *= Math.pow(0.5, session.reuseCount || 0)
-  if (opts.swallowed) scaledMg *= 1.08  // gum: extra absorption when swallowed
+  const scaledMg        = computeStopSessionDose(session, p, stopTs, opts)
 
   const prevEntry = log.value[0]
   log.value.unshift({
@@ -1075,9 +964,7 @@ function reusePouch(productId) {
   const stopTs          = Date.now()
   const actualDurationH = (stopTs - session.startTs) / 3_600_000
   const maxDurationH    = p.releaseDurationH || 1
-
-  let scaledMg = p.nicotineMg * Math.min(1, actualDurationH / maxDurationH)
-  scaledMg    *= Math.pow(0.5, session.reuseCount || 0)
+  const scaledMg        = computeStopSessionDose(session, p, stopTs)
 
   // Log the completed sub-session
   log.value.unshift({
@@ -1127,25 +1014,23 @@ function productById(id) {
 function sessionProgress(productId) {
   const session = activeSessions.value[productId]
   const p = products.value.find(x => x.id === productId)
-  if (!session || !p || !p.releaseDurationH) return 0
-  return (now.value - session.startTs) / (p.releaseDurationH * 3_600_000)
+  if (!session || !p) return 0
+  return computeSessionProgress(session, p, now.value)
 }
 
 function sessionTimeRemaining(productId) {
   const session = activeSessions.value[productId]
   const p = products.value.find(x => x.id === productId)
-  if (!session || !p || !p.releaseDurationH) return ''
-  const remainingMs = session.startTs + p.releaseDurationH * 3_600_000 - now.value
-  return remainingMs > 0 ? formatDuration(remainingMs) : null
+  if (!session || !p) return ''
+  const ms = computeSessionRemainingMs(session, p, now.value)
+  return ms > 0 ? formatDuration(ms) : null
 }
 
 function sessionEstimatedDose(productId) {
   const session = activeSessions.value[productId]
   const p = products.value.find(x => x.id === productId)
   if (!session || !p) return '0'
-  const elapsedH = (now.value - session.startTs) / 3_600_000
-  const mg = p.nicotineMg * Math.min(1, elapsedH / (p.releaseDurationH || 1)) * Math.pow(0.5, session.reuseCount || 0)
-  return mg.toFixed(2)
+  return computeSessionEstimatedDose(session, p, now.value).toFixed(2)
 }
 
 // ─── Logging ─────────────────────────────────────────────────────────────────
@@ -1231,7 +1116,7 @@ const milestones = computed(() => {
   return MILESTONE_DEFS.map(m => {
     const ts       = baseTs + m.offsetMs
     const achieved = now.value >= ts
-    return { label: m.label, ts, achieved, remaining: achieved ? null : formatDuration(ts - now.value), ago: achieved ? relativeAgo(ts) : null }
+    return { label: m.label, ts, achieved, remaining: achieved ? null : formatDuration(ts - now.value), ago: achieved ? relativeAgo(ts, now.value) : null }
   })
 })
 
@@ -1324,25 +1209,4 @@ function addProduct() {
   expandedProduct.value = id
 }
 
-// ─── Formatting ───────────────────────────────────────────────────────────────
-
-function formatDateTime(ts) {
-  return new Date(ts).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
-
-function formatDuration(ms) {
-  const totalMin = Math.ceil(ms / 60_000)
-  const h = Math.floor(totalMin / 60)
-  const m = totalMin % 60
-  if (h >= 24) { const d = Math.floor(h / 24), rh = h % 24; return rh > 0 ? `${d}d ${rh}h` : `${d}d` }
-  if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`
-  return `${totalMin}m`
-}
-
-function relativeAgo(ts) {
-  const diff = now.value - ts
-  if (diff < 3_600_000)  return `${Math.round(diff / 60_000)}m ago`
-  if (diff < 86_400_000) return `${Math.round(diff / 3_600_000)}h ago`
-  return `${Math.round(diff / 86_400_000)}d ago`
-}
 </script>
