@@ -72,7 +72,12 @@ export const useProductsStore = defineStore('products', () => {
       const saved = JSON.parse(savedProducts)
       products.value = saved.map(sp => {
         const def = DEFAULT_PRODUCTS.find(d => d.id === sp.id)
-        return def ? { ...def, ...sp } : sp
+        const base = def ? { ...def, ...sp } : sp
+        return {
+          producesCO: false, hasSession: false,
+          hasSwallowOption: false, hasReuseOption: false,
+          ...base,
+        }
       })
     } else {
       products.value = DEFAULT_PRODUCTS.map(p => ({ ...p }))

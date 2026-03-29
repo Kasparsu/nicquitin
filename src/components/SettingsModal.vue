@@ -127,6 +127,21 @@
                 <input class="input input-sm input-bordered" type="number" min="0.01" step="0.01" v-model.number="p.nicotineMg" />
               </label>
             </template>
+            <div class="divider text-xs my-1">behaviour</div>
+            <div class="flex flex-wrap gap-x-4 gap-y-2">
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" class="checkbox checkbox-sm" v-model="p.producesCO" />
+                <span class="text-sm">Combustion (produces CO)</span>
+              </label>
+              <label v-if="p.releaseType === 'slow'" class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" class="checkbox checkbox-sm" v-model="p.hasSwallowOption" />
+                <span class="text-sm">Spit or swallow option</span>
+              </label>
+              <label v-if="p.releaseType === 'slow'" class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" class="checkbox checkbox-sm" v-model="p.hasReuseOption" />
+                <span class="text-sm">Reusable / pauseable</span>
+              </label>
+            </div>
           </div>
         </div>
       </div>
@@ -287,7 +302,7 @@ function deleteProduct(id) {
 
 function addProduct() {
   const id = `custom-${Date.now()}`
-  editableProducts.value.push({ id, name: 'New Product', emoji: '🟣', nicotineMg: 1, releaseType: 'instant', releaseDurationH: 1, hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0, cartridgeTotalPuffs: 0 })
+  editableProducts.value.push({ id, name: 'New Product', emoji: '🟣', nicotineMg: 1, releaseType: 'instant', releaseDurationH: 1, hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0, cartridgeTotalPuffs: 0, producesCO: false, hasSwallowOption: false, hasReuseOption: false })
   expandedProduct.value = id
 }
 

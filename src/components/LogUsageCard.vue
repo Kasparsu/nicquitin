@@ -8,8 +8,7 @@
           class="btn btn-outline btn-sm flex-col h-auto py-3 gap-0.5"
           :class="[
             pendingProduct?.id === p.id ? 'btn-primary border-primary' :
-            (p.id === 'pouch' && pouchSessions.length > 0) ? 'btn-success border-success opacity-70' :
-            (p.hasSession && activeSessions[p.id]) ? 'btn-success border-success opacity-70' : '',
+            (p.releaseType === 'slow' && sessionsFor(p.id).length > 0) ? 'btn-success border-success opacity-70' : '',
           ]"
           @click="selectProduct(p)"
         >
@@ -18,15 +17,14 @@
           <span class="text-[10px] text-base-content/40">
             {{ p.nicotineMg.toFixed(3) }}mg{{ p.hasPuffCount ? '/puff' : '' }}
           </span>
-          <span v-if="p.id === 'pouch' && pouchSessions.length > 0" class="text-[10px] text-primary font-mono">
-            {{ pouchSessions.length }} active · + new
+          <span v-if="p.releaseType === 'slow' && sessionsFor(p.id).length > 1" class="text-[10px] text-primary font-mono">
+            {{ sessionsFor(p.id).length }} active · + new
           </span>
-          <span v-else-if="p.id === 'pouch'" class="text-[10px] text-base-content/30">tap to start</span>
-          <span v-else-if="p.hasSession && activeSessions[p.id]" class="text-[10px] font-mono"
-            :class="sessionProgress(p.id) >= 1 ? 'text-success' : 'text-primary'">
-            {{ sessionProgress(p.id) >= 1 ? '✓ done' : '⏱ ' + sessionElapsedShort(p.id) }}
+          <span v-else-if="p.releaseType === 'slow' && sessionsFor(p.id).length === 1" class="text-[10px] font-mono"
+            :class="sessionProgress(sessionsFor(p.id)[0]) >= 1 ? 'text-success' : 'text-primary'">
+            {{ sessionProgress(sessionsFor(p.id)[0]) >= 1 ? '✓ done' : '⏱ ' + sessionElapsedShort(sessionsFor(p.id)[0]) }}
           </span>
-          <span v-else-if="p.hasSession" class="text-[10px] text-base-content/30">tap to start</span>
+          <span v-else-if="p.releaseType === 'slow'" class="text-[10px] text-base-content/30">tap to start</span>
           <span
             v-else-if="p.hasPuffCount && cartridgeSessions[p.id]"
             class="text-[10px]"
@@ -133,10 +131,14 @@ const progressStore = useProgressStore()
 
 const { log, hasEnoughData } = storeToRefs(logStore)
 const { products, cartridgeSessions } = storeToRefs(productsStore)
-const { activeSessions, pouchSessions } = storeToRefs(sessionsStore)
+const { activeSessions } = storeToRefs(sessionsStore)
 
 const { puffsUsed, puffsRemaining, cartridgePct, newCartridge } = productsStore
-const { startSession, startPouchSession, sessionProgress, sessionElapsedShort } = sessionsStore
+const { startSession, sessionProgress, sessionElapsedShort } = sessionsStore
+
+function sessionsFor(productId) {
+  return activeSessions.value.filter(s => s.productId === productId)
+}
 
 // ─── UI state ─────────────────────────────────────────────────────────────────
 
@@ -147,15 +149,9 @@ const refillConfirm  = ref(null)
 // ─── Logging ─────────────────────────────────────────────────────────────────
 
 function selectProduct(p) {
-  if (p.id === 'pouch') {
-    startPouchSession()
-    return
-  }
-  if (p.hasSession) {
-    if (!activeSessions.value[p.id]) {
-      startSession(p.id)
-      pendingProduct.value = null
-    }
+  if (p.releaseType === 'slow') {
+    startSession(p.id)
+    pendingProduct.value = null
     return
   }
   if (p.hasPuffCount) {

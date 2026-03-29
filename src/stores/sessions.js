@@ -7,8 +7,8 @@ import { useProgressStore } from './progress.js'
 import { computeSessionProgress, computeSessionRemainingMs, computeSessionEstimatedDose, computeStopSessionDose } from '../lib/session.js'
 import { formatDuration } from '../lib/format.js'
 
-const SESSIONS_KEY       = 'nicquitin-sessions'
-const POUCH_SESSIONS_KEY = 'nicquitin-pouch-sessions'
+// Unified session key — old separate keys migrated on load
+const SESSIONS_KEY = 'nicquitin-sessions-v2'
 
 export const useSessionsStore = defineStore('sessions', () => {
   const time     = useTimeStore()
@@ -16,115 +16,64 @@ export const useSessionsStore = defineStore('sessions', () => {
   const log      = useLogStore()
   const progress = useProgressStore()
 
-  const activeSessions = ref({})   // { [productId]: { startTs, reuseCount } }
-  const pouchSessions  = ref([])   // [{ id, startTs, reuseCount, activeMs, paused, lastResumeTs }]
+  // All slow-release sessions in one array.
+  // Shape: { id, productId, startTs, reuseCount, activeMs, paused, lastResumeTs }
+  // For non-pauseable products: paused is always false, lastResumeTs === startTs.
+  const sessions = ref([])
 
-  const hasActiveSessions = computed(() =>
-    Object.keys(activeSessions.value).length > 0 || pouchSessions.value.length > 0
-  )
+  const hasActiveSessions = computed(() => sessions.value.length > 0)
 
-  // Active ms for a pouch session, excluding paused time
-  function pouchActiveMs(s, nowMs) {
+  // Active ms for a session (pause-aware)
+  function sessionActiveMs(s, nowMs) {
     return s.activeMs + (s.paused ? 0 : (nowMs - s.lastResumeTs))
   }
 
   // Virtual entries for nicotine computation of in-progress sessions
   const activeSessionEntries = computed(() => {
-    const fromSessions = Object.entries(activeSessions.value).flatMap(([productId, session]) => {
-      const p = products.productById(productId)
-      if (!p) return []
-      return [{ ts: session.startTs, nicotineMg: p.nicotineMg * Math.pow(0.5, session.reuseCount || 0), releaseType: p.releaseType, releaseDurationH: p.releaseDurationH }]
-    })
-    const pouch = products.productById('pouch')
-    const fromPouch = pouch ? pouchSessions.value
+    return sessions.value
       .filter(s => !s.paused)
-      .map(s => {
-        const effectiveStart = time.now - pouchActiveMs(s, time.now)
-        return { ts: effectiveStart, nicotineMg: pouch.nicotineMg * Math.pow(0.5, s.reuseCount), releaseType: pouch.releaseType, releaseDurationH: pouch.releaseDurationH }
-      }) : []
-    return [...fromSessions, ...fromPouch]
+      .flatMap(s => {
+        const p = products.productById(s.productId)
+        if (!p) return []
+        const effectiveStart = time.now - sessionActiveMs(s, time.now)
+        return [{ ts: effectiveStart, nicotineMg: p.nicotineMg * Math.pow(0.5, s.reuseCount || 0), releaseType: p.releaseType, releaseDurationH: p.releaseDurationH }]
+      })
   })
 
+  // Backwards-compat aliases consumed by LogUsageCard
+  const activeSessions = computed(() => sessions.value)
+  const pouchSessions  = computed(() => sessions.value.filter(s => s.productId === 'pouch'))
+
   function startSession(productId) {
-    activeSessions.value = { ...activeSessions.value, [productId]: { startTs: Date.now(), reuseCount: 0 } }
-    localStorage.setItem(SESSIONS_KEY, JSON.stringify(activeSessions.value))
+    const nowMs = Date.now()
+    sessions.value = [...sessions.value, {
+      id: nowMs, productId, startTs: nowMs, reuseCount: 0,
+      activeMs: 0, paused: false, lastResumeTs: nowMs,
+    }]
+    _persist()
   }
 
-  function stopSession(productId, opts = {}) {
-    const session = activeSessions.value[productId]
-    if (!session) return
-    const p = products.productById(productId)
+  function stopSession(sessionId, opts = {}) {
+    const s = sessions.value.find(x => x.id === sessionId)
+    if (!s) return
+    const p = products.productById(s.productId)
     if (!p) return
 
     const stopTs          = Date.now()
-    const actualDurationH = (stopTs - session.startTs) / 3_600_000
+    const activeMs        = sessionActiveMs(s, stopTs)
+    const actualDurationH = activeMs / 3_600_000
     const maxDurationH    = p.releaseDurationH || 1
-    const scaledMg        = computeStopSessionDose(session, p, stopTs, opts)
+    const scaledMg        = computeStopSessionDose(_eff(s, stopTs), p, stopTs, opts)
 
     const prevEntry = log.log[0]
     log.addEntry({
-      id: session.startTs, productId: p.id, product: p.name, emoji: p.emoji,
+      id: s.startTs, productId: p.id, product: p.name, emoji: p.emoji,
       nicotineMg: scaledMg,
       releaseType: p.releaseType,
       releaseDurationH: Math.min(actualDurationH, maxDurationH),
       puffs: null,
-      ts: session.startTs, stoppedTs: stopTs,
-      reuseCount: session.reuseCount || 0,
-    })
-
-    if (prevEntry && log.hasEnoughData) {
-      const prevEnd  = prevEntry.stoppedTs || prevEntry.ts
-      const interval = session.startTs - prevEnd
-      if (interval >= 5 * 60_000) progress.checkBeat(interval)
-    }
-
-    const updated = { ...activeSessions.value }
-    delete updated[productId]
-    activeSessions.value = updated
-    localStorage.setItem(SESSIONS_KEY, JSON.stringify(activeSessions.value))
-  }
-
-  function startPouchSession() {
-    const nowMs = Date.now()
-    pouchSessions.value = [...pouchSessions.value, { id: nowMs, startTs: nowMs, reuseCount: 0, activeMs: 0, paused: false, lastResumeTs: nowMs }]
-    localStorage.setItem(POUCH_SESSIONS_KEY, JSON.stringify(pouchSessions.value))
-  }
-
-  function pausePouch(id) {
-    const nowMs = Date.now()
-    pouchSessions.value = pouchSessions.value.map(s =>
-      s.id === id ? { ...s, paused: true, activeMs: s.activeMs + (nowMs - s.lastResumeTs) } : s
-    )
-    localStorage.setItem(POUCH_SESSIONS_KEY, JSON.stringify(pouchSessions.value))
-  }
-
-  function resumePouch(id) {
-    const nowMs = Date.now()
-    pouchSessions.value = pouchSessions.value.map(s =>
-      s.id === id ? { ...s, paused: false, reuseCount: s.reuseCount + 1, lastResumeTs: nowMs } : s
-    )
-    localStorage.setItem(POUCH_SESSIONS_KEY, JSON.stringify(pouchSessions.value))
-  }
-
-  function removePouchDone(id) {
-    const s = pouchSessions.value.find(x => x.id === id)
-    if (!s) return
-    const p = products.productById('pouch')
-    if (!p) return
-
-    const nowMs      = Date.now()
-    const activeMs   = pouchActiveMs(s, nowMs)
-    const activeDurH = activeMs / 3_600_000
-    const maxDurH    = p.releaseDurationH || 1
-    const scaledMg   = p.nicotineMg * Math.min(1, activeDurH / maxDurH) * Math.pow(0.5, s.reuseCount)
-
-    const prevEntry = log.log[0]
-    log.addEntry({
-      id: s.id, productId: p.id, product: p.name, emoji: p.emoji,
-      nicotineMg: scaledMg, releaseType: p.releaseType,
-      releaseDurationH: Math.min(activeDurH, maxDurH),
-      puffs: null, ts: s.startTs, stoppedTs: nowMs,
-      reuseCount: s.reuseCount,
+      ts: s.startTs, stoppedTs: stopTs,
+      reuseCount: s.reuseCount || 0,
     })
 
     if (prevEntry && log.hasEnoughData) {
@@ -133,62 +82,41 @@ export const useSessionsStore = defineStore('sessions', () => {
       if (interval >= 5 * 60_000) progress.checkBeat(interval)
     }
 
-    pouchSessions.value = pouchSessions.value.filter(x => x.id !== id)
-    localStorage.setItem(POUCH_SESSIONS_KEY, JSON.stringify(pouchSessions.value))
+    sessions.value = sessions.value.filter(x => x.id !== sessionId)
+    _persist()
   }
 
-  // ─── Display helpers ────────────────────────────────────────────────────────
-
-  function sessionElapsed(productId) {
-    const session = activeSessions.value[productId]
-    if (!session) return ''
-    const s = Math.floor((time.now - session.startTs) / 1000)
-    const h = Math.floor(s / 3600)
-    const m = Math.floor((s % 3600) / 60)
-    if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m`
-    return `${m}m ${String(s % 60).padStart(2, '0')}s`
+  function pauseSession(sessionId) {
+    const nowMs = Date.now()
+    sessions.value = sessions.value.map(s =>
+      s.id === sessionId
+        ? { ...s, paused: true, activeMs: s.activeMs + (nowMs - s.lastResumeTs) }
+        : s
+    )
+    _persist()
   }
 
-  function sessionElapsedShort(productId) {
-    const session = activeSessions.value[productId]
-    if (!session) return ''
-    const s = Math.floor((time.now - session.startTs) / 1000)
-    const h = Math.floor(s / 3600)
-    const m = Math.floor((s % 3600) / 60)
-    if (h > 0) return `${h}h${String(m).padStart(2, '0')}m`
-    return `${m}m`
+  function resumeSession(sessionId) {
+    const nowMs = Date.now()
+    sessions.value = sessions.value.map(s =>
+      s.id === sessionId
+        ? { ...s, paused: false, reuseCount: s.reuseCount + 1, lastResumeTs: nowMs }
+        : s
+    )
+    _persist()
   }
 
-  function sessionProgress(productId) {
-    const session = activeSessions.value[productId]
-    const p = products.productById(productId)
-    if (!session || !p) return 0
-    return computeSessionProgress(session, p, time.now)
+  // ─── Display helpers (take session object) ─────────────────────────────────
+
+  // Returns a synthetic session with startTs adjusted for paused time,
+  // so the lib functions (which use startTs) work correctly.
+  function _eff(s, nowMs) {
+    return { startTs: nowMs - sessionActiveMs(s, nowMs), reuseCount: s.reuseCount }
   }
 
-  function sessionTimeRemaining(productId) {
-    const session = activeSessions.value[productId]
-    const p = products.productById(productId)
-    if (!session || !p) return ''
-    const ms = computeSessionRemainingMs(session, p, time.now)
-    return ms > 0 ? formatDuration(ms) : null
-  }
-
-  function sessionEstimatedDose(productId) {
-    const session = activeSessions.value[productId]
-    const p = products.productById(productId)
-    if (!session || !p) return '0'
-    return computeSessionEstimatedDose(session, p, time.now).toFixed(2)
-  }
-
-  function pouchProgressVal(s) {
-    const p = products.productById('pouch')
-    if (!p || !p.releaseDurationH) return 0
-    return pouchActiveMs(s, time.now) / (p.releaseDurationH * 3_600_000)
-  }
-
-  function pouchElapsedDisplay(s) {
-    const ms  = pouchActiveMs(s, time.now)
+  function sessionElapsed(s) {
+    if (!s) return ''
+    const ms  = sessionActiveMs(s, time.now)
     const sec = Math.floor(ms / 1000)
     const h   = Math.floor(sec / 3600)
     const m   = Math.floor((sec % 3600) / 60)
@@ -196,44 +124,103 @@ export const useSessionsStore = defineStore('sessions', () => {
     return `${m}m ${String(sec % 60).padStart(2, '0')}s`
   }
 
-  function pouchTimeRemainingDisplay(s) {
-    const p = products.productById('pouch')
-    if (!p || !p.releaseDurationH) return ''
-    const remainMs = Math.max(0, p.releaseDurationH * 3_600_000 - pouchActiveMs(s, time.now))
-    return remainMs > 0 ? formatDuration(remainMs) + ' remaining' : '✓ fully absorbed'
+  function sessionElapsedShort(s) {
+    if (!s) return ''
+    const ms  = sessionActiveMs(s, time.now)
+    const sec = Math.floor(ms / 1000)
+    const h   = Math.floor(sec / 3600)
+    const m   = Math.floor((sec % 3600) / 60)
+    if (h > 0) return `${h}h${String(m).padStart(2, '0')}m`
+    return `${m}m`
   }
 
-  function pouchEstimatedDoseDisplay(s) {
-    const p = products.productById('pouch')
-    if (!p) return '0'
-    const activeDurH = pouchActiveMs(s, time.now) / 3_600_000
-    const maxDurH    = p.releaseDurationH || 1
-    return (p.nicotineMg * Math.min(1, activeDurH / maxDurH) * Math.pow(0.5, s.reuseCount)).toFixed(2)
+  function sessionProgress(s) {
+    const p = products.productById(s.productId)
+    if (!s || !p) return 0
+    return computeSessionProgress(_eff(s, time.now), p, time.now)
+  }
+
+  function sessionTimeRemaining(s) {
+    const p = products.productById(s.productId)
+    if (!s || !p) return ''
+    const ms = computeSessionRemainingMs(_eff(s, time.now), p, time.now)
+    return ms > 0 ? formatDuration(ms) : null
+  }
+
+  function sessionEstimatedDose(s) {
+    const p = products.productById(s.productId)
+    if (!s || !p) return '0'
+    return computeSessionEstimatedDose(_eff(s, time.now), p, time.now).toFixed(2)
+  }
+
+  function _persist() {
+    localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions.value))
   }
 
   function load() {
-    const savedSessions = localStorage.getItem(SESSIONS_KEY)
-    if (savedSessions) activeSessions.value = JSON.parse(savedSessions)
-    const savedPouch = localStorage.getItem(POUCH_SESSIONS_KEY)
-    if (savedPouch) pouchSessions.value = JSON.parse(savedPouch)
+    // Try new unified format first
+    const saved = localStorage.getItem(SESSIONS_KEY)
+    if (saved) {
+      sessions.value = JSON.parse(saved)
+      return
+    }
+
+    // Migrate old activeSessions object + pouchSessions array
+    const oldSessions = localStorage.getItem('nicquitin-sessions')
+    const oldPouch    = localStorage.getItem('nicquitin-pouch-sessions')
+    const migrated    = []
+
+    if (oldSessions) {
+      const parsed = JSON.parse(oldSessions)
+      for (const [productId, s] of Object.entries(parsed)) {
+        migrated.push({ id: s.startTs, productId, startTs: s.startTs, reuseCount: s.reuseCount || 0, activeMs: 0, paused: false, lastResumeTs: s.startTs })
+      }
+    }
+    if (oldPouch) {
+      for (const s of JSON.parse(oldPouch)) {
+        migrated.push({ id: s.id, productId: 'pouch', startTs: s.startTs, reuseCount: s.reuseCount || 0, activeMs: s.activeMs || 0, paused: s.paused || false, lastResumeTs: s.lastResumeTs || s.startTs })
+      }
+    }
+
+    if (migrated.length) {
+      sessions.value = migrated
+      _persist()
+    }
   }
 
   function importSessions(data) {
-    activeSessions.value = data
-    localStorage.setItem(SESSIONS_KEY, JSON.stringify(activeSessions.value))
+    // Accept both old object format and new array format
+    if (Array.isArray(data)) {
+      sessions.value = data
+    } else {
+      sessions.value = Object.entries(data).map(([productId, s]) => ({
+        id: s.startTs, productId, startTs: s.startTs, reuseCount: s.reuseCount || 0,
+        activeMs: 0, paused: false, lastResumeTs: s.startTs,
+      }))
+    }
+    _persist()
   }
 
   function importPouchSessions(data) {
-    pouchSessions.value = data
-    localStorage.setItem(POUCH_SESSIONS_KEY, JSON.stringify(pouchSessions.value))
+    // Merge pouch sessions into unified array, replacing existing pouch entries
+    sessions.value = [
+      ...sessions.value.filter(s => s.productId !== 'pouch'),
+      ...data.map(s => ({
+        id: s.id, productId: 'pouch', startTs: s.startTs,
+        reuseCount: s.reuseCount || 0, activeMs: s.activeMs || 0,
+        paused: s.paused || false, lastResumeTs: s.lastResumeTs || s.startTs,
+      })),
+    ]
+    _persist()
   }
 
   return {
-    activeSessions, pouchSessions, hasActiveSessions, activeSessionEntries,
-    startSession, stopSession,
-    startPouchSession, pausePouch, resumePouch, removePouchDone,
+    sessions, hasActiveSessions, activeSessionEntries,
+    // compat aliases used by LogUsageCard
+    activeSessions, pouchSessions,
+    startSession,
+    stopSession, pauseSession, resumeSession,
     sessionElapsed, sessionElapsedShort, sessionProgress, sessionTimeRemaining, sessionEstimatedDose,
-    pouchProgressVal, pouchElapsedDisplay, pouchTimeRemainingDisplay, pouchEstimatedDoseDisplay,
     load, importSessions, importPouchSessions,
   }
 })
