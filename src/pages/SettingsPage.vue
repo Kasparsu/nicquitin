@@ -1,56 +1,61 @@
 <template>
-  <div v-if="show" class="modal modal-open">
-    <div class="modal-box w-full max-w-lg flex flex-col max-h-[90dvh] p-0">
-      <div class="flex justify-between items-center px-6 pt-5 pb-3 shrink-0">
-        <h3 class="font-bold text-lg">configure</h3>
-        <button class="btn btn-sm btn-circle btn-ghost" @click="close">✕</button>
+  <div class="space-y-4">
+
+    <!-- Tabs -->
+    <div class="flex gap-1 bg-base-300 rounded-xl p-1">
+      <button
+        v-for="tab in tabs" :key="tab.id"
+        class="flex-1 px-3 py-2 text-xs font-semibold tracking-wide rounded-lg transition-colors"
+        :class="activeTab === tab.id
+          ? 'bg-base-100 text-base-content shadow-sm'
+          : 'text-base-content/50 hover:text-base-content/80'"
+        @click="activeTab = tab.id"
+      >{{ tab.label }}</button>
+    </div>
+
+    <!-- Profile tab -->
+    <div v-if="activeTab === 'profile'" class="bg-base-200 rounded-xl px-4 py-3 space-y-3">
+      <div class="grid grid-cols-2 gap-2">
+        <label class="form-control">
+          <div class="label py-0.5"><span class="label-text text-xs">biological sex</span></div>
+          <select class="select select-sm select-bordered" v-model="editableProfile.sex">
+            <option value="male">Male</option>
+            <option value="female">Female</option>
+          </select>
+        </label>
+        <label class="form-control">
+          <div class="label py-0.5"><span class="label-text text-xs">CYP2A6 metabolizer</span></div>
+          <select class="select select-sm select-bordered" v-model="editableProfile.metabolizer">
+            <option value="slow">Slow (~3.5h t½)</option>
+            <option value="normal">Normal (~2h t½)</option>
+            <option value="fast">Fast (~1.4h t½)</option>
+          </select>
+        </label>
       </div>
-
-      <div class="overflow-y-auto flex-1 px-6 pb-2">
-
-      <!-- Profile -->
-      <div class="bg-base-200 rounded-xl px-4 py-3 space-y-3 mb-3">
-        <div class="text-xs font-semibold text-base-content/50 uppercase tracking-wide">metabolism profile</div>
-        <div class="grid grid-cols-2 gap-2">
-          <label class="form-control">
-            <div class="label py-0.5"><span class="label-text text-xs">biological sex</span></div>
-            <select class="select select-sm select-bordered" v-model="editableProfile.sex">
-              <option value="male">Male</option>
-              <option value="female">Female</option>
-            </select>
-          </label>
-          <label class="form-control">
-            <div class="label py-0.5"><span class="label-text text-xs">CYP2A6 metabolizer</span></div>
-            <select class="select select-sm select-bordered" v-model="editableProfile.metabolizer">
-              <option value="slow">Slow (~3.5h t½)</option>
-              <option value="normal">Normal (~2h t½)</option>
-              <option value="fast">Fast (~1.4h t½)</option>
-            </select>
-          </label>
-        </div>
-        <div class="flex flex-wrap gap-x-4 gap-y-2">
-          <label class="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" class="checkbox checkbox-sm" v-model="editableProfile.menthol" />
-            <span class="text-sm">Menthol products</span>
-          </label>
-          <label v-if="editableProfile.sex === 'female'" class="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" class="checkbox checkbox-sm" v-model="editableProfile.pregnant" />
-            <span class="text-sm">Pregnant</span>
-          </label>
-          <label v-if="editableProfile.sex === 'female' && !editableProfile.pregnant" class="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" class="checkbox checkbox-sm" v-model="editableProfile.contraceptives" />
-            <span class="text-sm">Hormonal contraceptives</span>
-          </label>
-        </div>
-        <div class="bg-base-100 rounded-lg px-3 py-2 flex justify-between items-center text-sm">
-          <span class="text-base-content/50">adjusted half-life</span>
-          <span class="font-mono font-bold">{{ previewHalfLifeH.toFixed(2) }} h</span>
-        </div>
+      <div class="flex flex-wrap gap-x-4 gap-y-2">
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" class="checkbox checkbox-sm" v-model="editableProfile.menthol" />
+          <span class="text-sm">Menthol products</span>
+        </label>
+        <label v-if="editableProfile.sex === 'female'" class="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" class="checkbox checkbox-sm" v-model="editableProfile.pregnant" />
+          <span class="text-sm">Pregnant</span>
+        </label>
+        <label v-if="editableProfile.sex === 'female' && !editableProfile.pregnant" class="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" class="checkbox checkbox-sm" v-model="editableProfile.contraceptives" />
+          <span class="text-sm">Hormonal contraceptives</span>
+        </label>
       </div>
+      <div class="bg-base-100 rounded-lg px-3 py-2 flex justify-between items-center text-sm">
+        <span class="text-base-content/50">adjusted half-life</span>
+        <span class="font-mono font-bold">{{ previewHalfLifeH.toFixed(2) }} h</span>
+      </div>
+      <button class="btn btn-primary btn-sm w-full" @click="saveProfile">save profile</button>
+    </div>
 
-      <div class="divider text-xs my-0">products</div>
-
-      <div class="space-y-2 max-h-[40vh] overflow-y-auto pr-1 mt-2">
+    <!-- Products tab -->
+    <template v-if="activeTab === 'products'">
+      <div class="space-y-2">
         <div v-for="p in editableProducts" :key="p.id" class="bg-base-200 rounded-xl">
           <div class="flex items-center justify-between px-4 py-3 cursor-pointer select-none" @click="toggleExpanded(p.id)">
             <div class="flex items-center gap-2">
@@ -146,99 +151,92 @@
         </div>
       </div>
 
-      <button class="btn btn-outline btn-sm w-full mt-3" @click="addProduct">+ add product</button>
+      <button class="btn btn-outline btn-sm w-full" @click="addProduct">+ add product</button>
+      <button class="btn btn-primary btn-sm w-full" @click="saveProducts">save products</button>
+    </template>
 
-      <!-- Import / Export -->
-      <div class="divider text-xs my-2">data</div>
-      <div class="flex gap-2">
-        <button class="btn btn-outline btn-sm flex-1" @click="exportData">⬇ export</button>
-        <label class="btn btn-outline btn-sm flex-1 cursor-pointer">
-          ⬆ import
-          <input type="file" class="hidden" accept=".json" @change="handleImport" />
-        </label>
-      </div>
-      <div v-if="importStatus === 'success'" class="text-xs text-success text-center mt-1">
-        ✓ data imported successfully
-      </div>
-      <div v-if="importStatus === 'error'" class="text-xs text-error text-center mt-1">
-        ✗ {{ importError }}
-      </div>
+    <!-- Data tab -->
+    <template v-if="activeTab === 'data'">
+      <div class="space-y-3">
+        <div class="flex gap-2">
+          <button class="btn btn-outline btn-sm flex-1" @click="exportData">⬇ export</button>
+          <label class="btn btn-outline btn-sm flex-1 cursor-pointer">
+            ⬆ import
+            <input type="file" class="hidden" accept=".json" @change="handleImport" />
+          </label>
+        </div>
+        <div v-if="importStatus === 'success'" class="text-xs text-success text-center">
+          ✓ data imported successfully
+        </div>
+        <div v-if="importStatus === 'error'" class="text-xs text-error text-center">
+          ✗ {{ importError }}
+        </div>
 
-      <!-- GitHub Sync -->
-      <div class="divider text-xs my-2">github sync</div>
-      <div class="space-y-2">
+        <!-- GitHub Sync -->
+        <div class="divider text-xs my-1">github sync</div>
+        <div class="space-y-2">
+          <template v-if="!syncStore.isConfigured && syncStore.oauthStep === 'idle'">
+            <button class="btn btn-outline btn-sm w-full" @click="syncStore.startOAuth()">
+              Connect GitHub account
+            </button>
+            <p class="text-[10px] text-base-content/40 text-center">
+              Syncs your data to a private GitHub Gist. Stored locally only.
+            </p>
+          </template>
 
-        <!-- Not connected -->
-        <template v-if="!syncStore.isConfigured && syncStore.oauthStep === 'idle'">
-          <button class="btn btn-outline btn-sm w-full" @click="syncStore.startOAuth()">
-            Connect GitHub account
-          </button>
-          <p class="text-[10px] text-base-content/40 text-center">
-            Syncs your data to a private GitHub Gist. Stored locally only.
-          </p>
-        </template>
-
-        <!-- Popup OAuth: waiting for user to complete in popup -->
-        <template v-else-if="syncStore.oauthStep === 'waiting'">
-          <div class="bg-base-200 rounded-xl px-4 py-3 space-y-3">
-            <div class="flex items-center gap-2 text-sm">
-              <span class="loading loading-spinner loading-xs"></span>
-              Complete authorization in the popup window…
-            </div>
-            <button class="btn btn-ghost btn-xs w-full" @click="syncStore.cancelOAuth()">cancel</button>
-          </div>
-        </template>
-
-        <!-- Connected -->
-        <template v-else-if="syncStore.isConfigured">
-          <div class="bg-base-200 rounded-xl px-4 py-3 flex items-center justify-between">
-            <div>
-              <div class="text-sm font-medium">✓ Connected to GitHub</div>
-              <div v-if="syncStore.lastSynced" class="text-[10px] text-base-content/40 mt-0.5">
-                last synced {{ new Date(syncStore.lastSynced).toLocaleString() }}
-                <span v-if="syncStore.gistId" class="ml-1">· gist {{ syncStore.gistId.slice(0, 8) }}…</span>
+          <template v-else-if="syncStore.oauthStep === 'waiting'">
+            <div class="bg-base-200 rounded-xl px-4 py-3 space-y-3">
+              <div class="flex items-center gap-2 text-sm">
+                <span class="loading loading-spinner loading-xs"></span>
+                Complete authorization in the popup window…
               </div>
+              <button class="btn btn-ghost btn-xs w-full" @click="syncStore.cancelOAuth()">cancel</button>
             </div>
-            <button class="btn btn-ghost btn-xs text-error" @click="syncStore.clearToken()">disconnect</button>
-          </div>
-          <div class="flex gap-2">
-            <button
-              class="btn btn-sm btn-outline flex-1"
-              :disabled="syncStore.syncing"
-              @click="pushToGitHub"
-            >
-              <span v-if="syncStore.syncing && syncDirection === 'push'" class="loading loading-spinner loading-xs"></span>
-              ↑ push to github
-            </button>
-            <button
-              class="btn btn-sm btn-outline flex-1"
-              :disabled="!syncStore.hasSynced || syncStore.syncing"
-              @click="pullFromGitHub"
-            >
-              <span v-if="syncStore.syncing && syncDirection === 'pull'" class="loading loading-spinner loading-xs"></span>
-              ↓ pull from github
-            </button>
-          </div>
-          <div v-if="syncStatus === 'pushed'" class="text-xs text-success text-center">✓ pushed to github</div>
-          <div v-if="syncStatus === 'pulled'" class="text-xs text-success text-center">✓ pulled from github</div>
-        </template>
+          </template>
 
-        <div v-if="syncStore.error" class="text-xs text-error text-center">✗ {{ syncStore.error }}</div>
+          <template v-else-if="syncStore.isConfigured">
+            <div class="bg-base-200 rounded-xl px-4 py-3 flex items-center justify-between">
+              <div>
+                <div class="text-sm font-medium">✓ Connected to GitHub</div>
+                <div v-if="syncStore.lastSynced" class="text-[10px] text-base-content/40 mt-0.5">
+                  last synced {{ new Date(syncStore.lastSynced).toLocaleString() }}
+                  <span v-if="syncStore.gistId" class="ml-1">· gist {{ syncStore.gistId.slice(0, 8) }}…</span>
+                </div>
+              </div>
+              <button class="btn btn-ghost btn-xs text-error" @click="syncStore.clearToken()">disconnect</button>
+            </div>
+            <div class="flex gap-2">
+              <button
+                class="btn btn-sm btn-outline flex-1"
+                :disabled="syncStore.syncing"
+                @click="pushToGitHub"
+              >
+                <span v-if="syncStore.syncing && syncDirection === 'push'" class="loading loading-spinner loading-xs"></span>
+                ↑ push to github
+              </button>
+              <button
+                class="btn btn-sm btn-outline flex-1"
+                :disabled="!syncStore.hasSynced || syncStore.syncing"
+                @click="pullFromGitHub"
+              >
+                <span v-if="syncStore.syncing && syncDirection === 'pull'" class="loading loading-spinner loading-xs"></span>
+                ↓ pull from github
+              </button>
+            </div>
+            <div v-if="syncStatus === 'pushed'" class="text-xs text-success text-center">✓ pushed to github</div>
+            <div v-if="syncStatus === 'pulled'" class="text-xs text-success text-center">✓ pulled from github</div>
+          </template>
+
+          <div v-if="syncStore.error" class="text-xs text-error text-center">✗ {{ syncStore.error }}</div>
+        </div>
       </div>
+    </template>
 
-      </div><!-- end scrollable -->
-
-      <div class="modal-action mt-0 px-6 py-4 border-t border-base-300 shrink-0">
-        <button class="btn btn-primary" @click="save">save</button>
-        <button class="btn btn-ghost" @click="close">cancel</button>
-      </div>
-    </div>
-    <label class="modal-backdrop" @click="close"></label>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { calcHalfLife } from '../lib/pharmacokinetics.js'
 import { useLogStore }      from '../stores/log.js'
@@ -247,9 +245,6 @@ import { useProductsStore } from '../stores/products.js'
 import { useSessionsStore } from '../stores/sessions.js'
 import { useProgressStore } from '../stores/progress.js'
 import { useSyncStore }     from '../stores/sync.js'
-
-const props  = defineProps({ show: Boolean })
-const emit   = defineEmits(['close'])
 
 const logStore      = useLogStore()
 const profileStore  = useProfileStore()
@@ -264,7 +259,12 @@ const { activeSessions, pouchSessions } = storeToRefs(sessionsStore)
 const { progressState } = storeToRefs(progressStore)
 const { log } = storeToRefs(logStore)
 
-// ─── Editable copies (initialised when modal opens) ───────────────────────────
+const tabs = [
+  { id: 'profile',  label: 'Profile' },
+  { id: 'products', label: 'Products' },
+  { id: 'data',     label: 'Data' },
+]
+const activeTab = ref('profile')
 
 const editableProducts = ref([])
 const editableProfile  = ref({})
@@ -272,25 +272,21 @@ const expandedProduct  = ref(null)
 const importStatus     = ref(null)
 const importError      = ref('')
 
-watch(() => props.show, (val) => {
-  if (val) {
-    editableProducts.value = products.value.map(p => ({ ...p }))
-    editableProfile.value  = { ...profile.value }
-    expandedProduct.value  = null
-    importStatus.value     = null
-  }
+onMounted(() => {
+  editableProducts.value = products.value.map(p => ({ ...p }))
+  editableProfile.value  = { ...profile.value }
 })
 
 const previewHalfLifeH = computed(() => calcHalfLife(editableProfile.value))
 
 // ─── Actions ─────────────────────────────────────────────────────────────────
 
-function close() { emit('close') }
-
-function save() {
-  productsStore.saveProducts(editableProducts.value)
+function saveProfile() {
   profileStore.save(editableProfile.value)
-  emit('close')
+}
+
+function saveProducts() {
+  productsStore.saveProducts(editableProducts.value)
 }
 
 function toggleExpanded(id) { expandedProduct.value = expandedProduct.value === id ? null : id }

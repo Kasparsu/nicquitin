@@ -1,32 +1,38 @@
 <template>
-  <div class="min-h-screen bg-base-200 p-4 pb-10">
-    <div class="max-w-xl mx-auto space-y-4">
+  <div class="min-h-screen bg-base-200 p-4 pb-24">
+    <div class="max-w-xl mx-auto">
 
       <!-- Header -->
-      <div class="flex justify-between items-center pt-4 pb-2">
-        <div>
-          <h1 class="text-3xl font-bold">NicZero</h1>
-          <p class="text-base-content/60 text-sm">track your nicotine usage</p>
-        </div>
-        <button class="btn btn-ghost btn-circle" @click="showSettings = true">⚙️</button>
+      <div class="pt-4 pb-4">
+        <h1 class="text-3xl font-bold">NicZero</h1>
+        <p class="text-base-content/60 text-sm">track your nicotine usage</p>
       </div>
 
-      <NicotineCard />
-      <BeatCard />
-      <ActiveSessionsCard />
-      <LogUsageCard />
-      <PatternsCard />
-      <HabitTimelineCard />
-      <HistoryCard />
+      <router-view />
 
     </div>
   </div>
 
-  <SettingsModal :show="showSettings" @close="showSettings = false" />
+  <!-- Bottom navigation -->
+  <nav class="fixed bottom-0 inset-x-0 bg-base-100 border-t border-base-300 z-50">
+    <div class="max-w-xl mx-auto flex">
+      <router-link
+        v-for="tab in navTabs" :key="tab.to"
+        :to="tab.to"
+        class="flex-1 flex flex-col items-center gap-0.5 py-2 text-xs transition-colors"
+        :class="$route.name === tab.name
+          ? 'text-primary'
+          : 'text-base-content/40 hover:text-base-content/70'"
+      >
+        <span class="text-lg">{{ tab.icon }}</span>
+        <span>{{ tab.label }}</span>
+      </router-link>
+    </div>
+  </nav>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { onMounted, onUnmounted } from 'vue'
 
 import { useTimeStore }     from './stores/time.js'
 import { useLogStore }      from './stores/log.js'
@@ -37,16 +43,13 @@ import { useProgressStore } from './stores/progress.js'
 import { useNicotineStore } from './stores/nicotine.js'
 import { useSyncStore }     from './stores/sync.js'
 
-import NicotineCard      from './components/NicotineCard.vue'
-import BeatCard          from './components/BeatCard.vue'
-import ActiveSessionsCard from './components/ActiveSessionsCard.vue'
-import LogUsageCard      from './components/LogUsageCard.vue'
-import PatternsCard      from './components/PatternsCard.vue'
-import HabitTimelineCard from './components/HabitTimelineCard.vue'
-import HistoryCard       from './components/HistoryCard.vue'
-import SettingsModal     from './components/SettingsModal.vue'
-
-const showSettings = ref(false)
+const navTabs = [
+  { to: '/',         name: 'home',     icon: '🏠', label: 'Home' },
+  { to: '/log',      name: 'log',      icon: '📝', label: 'Log' },
+  { to: '/insights', name: 'insights', icon: '📊', label: 'Insights' },
+  { to: '/history',  name: 'history',  icon: '📋', label: 'History' },
+  { to: '/settings', name: 'settings', icon: '⚙️', label: 'Settings' },
+]
 
 const timeStore     = useTimeStore()
 const logStore      = useLogStore()
@@ -55,7 +58,7 @@ const productsStore = useProductsStore()
 const progressStore = useProgressStore()
 const sessionsStore = useSessionsStore()
 const syncStore     = useSyncStore()
-useNicotineStore()  // initialise so computed deps are wired up
+useNicotineStore()
 
 onMounted(() => {
   timeStore.start()
