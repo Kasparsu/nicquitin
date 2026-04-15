@@ -29,13 +29,16 @@ export const DELIVERY_TABLE = [
 // Default 8-phase "Glide to Zero" plan.
 // Each phase references a rank from the delivery table.
 // daysMin = minimum days to stay (receptor downregulation needs ~5 days).
+// Days are set so each 7-patch pack is fully used.
+// Half-patch phases use 1 patch per 2 days.
+// Pack math: 25mg(5+2=7), 15mg(2+5=7), 21mg(5+2=7), 10mg(7=7), 14mg(5+2=7)
 export const DEFAULT_PLAN = [
-  { phase: 1, rank: 1,  daysMin: 4, label: 'Full Strength' },
+  { phase: 1, rank: 1,  daysMin: 5, label: 'Full Strength' },
   { phase: 2, rank: 3,  daysMin: 4, label: 'First Cut' },
-  { phase: 3, rank: 5,  daysMin: 4, label: 'Mid Dose' },
-  { phase: 4, rank: 6,  daysMin: 4, label: '24h Switch' },
-  { phase: 5, rank: 10, daysMin: 4, label: 'Low Dose' },
-  { phase: 6, rank: 11, daysMin: 4, label: 'Taper Down' },
+  { phase: 3, rank: 5,  daysMin: 5, label: 'Mid Dose' },
+  { phase: 4, rank: 6,  daysMin: 5, label: '24h Switch' },
+  { phase: 5, rank: 10, daysMin: 7, label: 'Low Dose' },
+  { phase: 6, rank: 11, daysMin: 5, label: 'Taper Down' },
   { phase: 7, rank: 13, daysMin: 4, label: 'Half 24h' },
   { phase: 8, rank: 15, daysMin: 4, label: 'Exit' },
 ]
