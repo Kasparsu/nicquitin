@@ -15,8 +15,8 @@ export const useLogStore = defineStore('log', () => {
   const log = ref([])
 
   // Known NRT product ID patterns (covers old and new formats)
-  const NRT_ID_PATTERNS = ['patch', 'gum', 'lozenge', 'nicorette', 'niquitin']
-  const NRT_NAME_PATTERNS = ['patch', 'gum', 'lozenge', 'nicorette', 'niquitin', 'pastille']
+  const NRT_ID_PATTERNS = ['patch', 'gum', 'lozenge', 'loseng', 'nicorette', 'niquitin', 'spray']
+  const NRT_NAME_PATTERNS = ['patch', 'gum', 'lozenge', 'loseng', 'nicorette', 'niquitin', 'pastille', 'spray', 'mini mint', 'mini lozenge']
 
   // An entry is NRT if:
   // 1. Its own isNRT flag is set, OR

@@ -36,7 +36,7 @@ export const useSessionsStore = defineStore('sessions', () => {
         const p = products.productById(s.productId)
         if (!p) return []
         const effectiveStart = time.now - sessionActiveMs(s, time.now)
-        return [{ ts: effectiveStart, nicotineMg: p.nicotineMg * Math.pow(0.5, s.reuseCount || 0), releaseType: p.releaseType, releaseDurationH: p.releaseDurationH }]
+        return [{ ts: effectiveStart, nicotineMg: p.nicotineMg * Math.pow(0.5, s.reuseCount || 0), releaseType: p.releaseType, releaseDurationH: p.releaseDurationH, emoji: p.emoji, isNRT: p.isNRT ?? false, producesCO: p.producesCO ?? false, productId: s.productId }]
       })
   })
 
@@ -60,9 +60,6 @@ export const useSessionsStore = defineStore('sessions', () => {
     if (!p) return
 
     const stopTs          = Date.now()
-    const activeMs        = sessionActiveMs(s, stopTs)
-    const actualDurationH = activeMs / 3_600_000
-    const maxDurationH    = p.releaseDurationH || 1
     const scaledMg        = computeStopSessionDose(_eff(s, stopTs), p, stopTs, opts)
 
     const prevEntry = log.log[0]
@@ -70,10 +67,12 @@ export const useSessionsStore = defineStore('sessions', () => {
       id: s.startTs, productId: p.id, product: p.name, emoji: p.emoji,
       nicotineMg: scaledMg,
       releaseType: p.releaseType,
-      releaseDurationH: Math.min(actualDurationH, maxDurationH),
+      releaseDurationH: p.releaseDurationH || 1,
       puffs: null,
       ts: s.startTs, stoppedTs: stopTs,
       reuseCount: s.reuseCount || 0,
+      producesCO: p.producesCO ?? false,
+      isNRT: p.isNRT ?? false,
     })
 
     if (prevEntry && log.hasEnoughData) {

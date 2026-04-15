@@ -21,6 +21,13 @@
 
             <!-- Editing a usage entry -->
             <div v-if="editing?.key === item.key && item.type === 'usage'" class="bg-base-200 rounded-xl px-3 py-3 space-y-2">
+              <label class="form-control">
+                <div class="label py-0.5"><span class="label-text text-xs">product</span></div>
+                <select class="select select-sm select-bordered" v-model="editing.productId" @change="onProductChange">
+                  <option v-for="p in availableProducts" :key="p.id" :value="p.id">{{ p.emoji }} {{ p.name }}</option>
+                  <option v-if="!availableProducts.some(p => p.id === editing.productId)" :value="editing.productId">{{ editing.emoji }} {{ editing.productName }} (removed)</option>
+                </select>
+              </label>
               <div class="grid grid-cols-2 gap-2">
                 <label class="form-control">
                   <div class="label py-0.5"><span class="label-text text-xs">time</span></div>
@@ -96,9 +103,11 @@ import { ref, computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { formatDuration } from '../lib/format.js'
 import { useLogStore } from '../stores/log.js'
+import { useProductsStore } from '../stores/products.js'
 import { useChallengesStore } from '../stores/challenges.js'
 
 const logStore = useLogStore()
+const productsStore = useProductsStore()
 const challengesStore = useChallengesStore()
 const { log } = storeToRefs(logStore)
 
@@ -188,11 +197,16 @@ function toLocalDatetime(ts) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+const availableProducts = computed(() => productsStore.products)
+
 function startEdit(item) {
   const e = item.entry
   editing.value = {
     key: item.key,
     id: e.id,
+    productId: e.productId,
+    productName: e.product,
+    emoji: e.emoji,
     datetime: toLocalDatetime(e.ts),
     stoppedDatetime: e.stoppedTs ? toLocalDatetime(e.stoppedTs) : null,
     nicotineMg: e.nicotineMg,
@@ -200,11 +214,29 @@ function startEdit(item) {
   }
 }
 
+function onProductChange() {
+  const p = productsStore.productById(editing.value.productId)
+  if (!p) return
+  editing.value.productName = p.name
+  editing.value.emoji = p.emoji
+  editing.value.nicotineMg = p.nicotineMg
+}
+
 function saveEdit() {
   if (!editing.value) return
+  const p = productsStore.productById(editing.value.productId)
   const fields = {
     ts: new Date(editing.value.datetime).getTime(),
     nicotineMg: editing.value.nicotineMg,
+    productId: editing.value.productId,
+    product: p ? p.name : editing.value.productName,
+    emoji: p ? p.emoji : editing.value.emoji,
+  }
+  if (p) {
+    fields.releaseType = p.releaseType
+    fields.releaseDurationH = p.releaseDurationH
+    fields.producesCO = p.producesCO ?? false
+    fields.isNRT = p.isNRT ?? false
   }
   if (editing.value.puffs != null) fields.puffs = editing.value.puffs
   if (editing.value.stoppedDatetime) fields.stoppedTs = new Date(editing.value.stoppedDatetime).getTime()
