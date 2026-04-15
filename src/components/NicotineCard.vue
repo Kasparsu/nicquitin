@@ -22,13 +22,17 @@
           <div class="text-xs text-base-content/30 mt-0.5">t½ = {{ halfLifeH }}h</div>
         </div>
       </div>
-      <div class="divider text-xs my-0">recovery milestones</div>
-      <div v-if="lastUsageTs !== null" class="space-y-2">
-        <div v-for="m in milestones" :key="m.label" class="flex items-center gap-2 text-sm">
-          <span class="shrink-0 w-5 text-center">{{ m.achieved ? '✅' : '🔘' }}</span>
-          <span class="flex-1 leading-tight" :class="m.achieved ? 'text-success' : 'text-base-content/70'">{{ m.label }}</span>
-          <span class="text-xs text-base-content/50 shrink-0">{{ m.achieved ? m.ago : 'in ' + m.remaining }}</span>
-        </div>
+      <div v-if="milestoneGroups.length" class="space-y-3">
+        <template v-for="group in milestoneGroups" :key="group.title">
+          <div class="divider text-xs my-0">{{ group.title }}</div>
+          <div class="space-y-1.5">
+            <div v-for="m in group.milestones" :key="m.label" class="flex items-center gap-2 text-sm">
+              <span class="shrink-0 w-5 text-center">{{ m.achieved ? '✅' : '🔘' }}</span>
+              <span class="flex-1 leading-tight" :class="m.achieved ? 'text-success' : 'text-base-content/70'">{{ m.label }}</span>
+              <span class="text-xs text-base-content/50 shrink-0">{{ m.achieved ? m.ago : 'in ' + m.remaining }}</span>
+            </div>
+          </div>
+        </template>
       </div>
       <div v-else class="text-center text-base-content/40 text-sm py-2">log usage to see milestones</div>
     </div>
@@ -45,13 +49,30 @@ import { useProfileStore }  from '../stores/profile.js'
 import { useSessionsStore } from '../stores/sessions.js'
 import { useNicotineStore, GAUGE_MAX, CLEAN_THRESHOLD } from '../stores/nicotine.js'
 
-const MILESTONE_DEFS = [
-  { label: '❤️  Heart rate & BP drop',        offsetMs: 20  * 60 * 1000 },
-  { label: '💨  Carbon monoxide clears',       offsetMs: 12  * 60 * 60 * 1000, requiresCombustion: true },
-  { label: '🧹  Nicotine-free (3 days)',       offsetMs: 3   * 24 * 60 * 60 * 1000 },
-  { label: '🩸  Circulation improves (2 wks)', offsetMs: 14  * 24 * 60 * 60 * 1000 },
-  { label: '🧠  Cravings greatly reduced',     offsetMs: 90  * 24 * 60 * 60 * 1000 },
-  { label: '🏥  Heart disease risk halved',    offsetMs: 365 * 24 * 60 * 60 * 1000 },
+// Phase 1: Quit smoking → vaping/pouches/NRT
+const COMBUSTION_MILESTONES = [
+  { label: '💨  Carbon monoxide clears',          offsetMs: 24  * 60 * 60 * 1000 },
+  { label: '👃  Taste & smell improving',          offsetMs: 48  * 60 * 60 * 1000 },
+  { label: '🫁  Lungs clearing, cilia recovering', offsetMs: 30  * 24 * 60 * 60 * 1000 },
+  { label: '🫁  Lung function increase',           offsetMs: 90  * 24 * 60 * 60 * 1000 },
+]
+
+// Phase 2: Quit vaping/pouches → NRT only
+const HABIT_MILESTONES = [
+  { label: '🧠  Breaking spike/reward cycle',      offsetMs: 1   * 24 * 60 * 60 * 1000 },
+  { label: '📊  Blood sugar stabilising',           offsetMs: 14  * 24 * 60 * 60 * 1000 },
+  { label: '👄  Oral health improving',             offsetMs: 21  * 24 * 60 * 60 * 1000 },
+  { label: '😌  No longer a "user"',                offsetMs: 30  * 24 * 60 * 60 * 1000 },
+]
+
+// Phase 3: Quit all nicotine
+const NICOTINE_FREE_MILESTONES = [
+  { label: '❤️  Heart rate & BP at natural levels', offsetMs: 20  * 60 * 1000 },
+  { label: '🧹  Nicotine fully out of body',        offsetMs: 3   * 24 * 60 * 60 * 1000 },
+  { label: '🧠  Brain fog lifts, natural dopamine',  offsetMs: 28  * 24 * 60 * 60 * 1000 },
+  { label: '🩸  Circulation noticeably improved',    offsetMs: 90  * 24 * 60 * 60 * 1000 },
+  { label: '😴  Deep sleep & baseline anxiety gone', offsetMs: 40  * 24 * 60 * 60 * 1000 },
+  { label: '🏥  Heart disease risk halved',          offsetMs: 365 * 24 * 60 * 60 * 1000 },
 ]
 
 const time    = useTimeStore()
@@ -63,31 +84,59 @@ const { nicotineLevel, gaugeColor, timeUntilClean } = storeToRefs(useNicotineSto
 const sessionsStore = useSessionsStore()
 const { hasActiveSessions } = storeToRefs(sessionsStore)
 
-// Last entry from a combustible product (cigarette, cigar, or any custom with producesCO)
-const lastCombustibleUsed = computed(() =>
-  log.value.find(e => e.producesCO === true || e.productId === 'cigarette' || e.productId === 'cigar') ?? null
-)
+// Last entry from a combustible product
+const lastCombustibleTs = computed(() => {
+  const e = log.value.find(e => e.producesCO === true || e.productId === 'cigarette' || e.productId === 'cigar')
+  return e ? (e.stoppedTs || e.ts) : null
+})
 
-// For recovery milestones: use last usage of ANY product (including NRT),
-// and if there's an active session (patch on), milestones count from now.
-const lastUsageTs = computed(() => {
+// Last entry from a non-NRT habit (vape, pouch, cigarette, etc.)
+const lastHabitTs = computed(() => {
+  if (!lastHabitUsed.value) return null
+  return lastHabitUsed.value.stoppedTs || lastHabitUsed.value.ts
+})
+
+// Last usage of anything (including NRT + active sessions)
+const lastAnyTs = computed(() => {
   if (hasActiveSessions.value) return time.now
   if (!lastUsed.value) return null
   return lastUsed.value.stoppedTs || lastUsed.value.ts
 })
 
-const milestones = computed(() => {
-  if (lastUsageTs.value === null) return []
-  const baseTs = lastUsageTs.value
-  return MILESTONE_DEFS
-    .filter(m => !m.requiresCombustion || lastCombustibleUsed.value !== null)
-    .map(m => {
-      const entryTs = m.requiresCombustion
-        ? (lastCombustibleUsed.value.stoppedTs || lastCombustibleUsed.value.ts)
-        : baseTs
-      const ts       = entryTs + m.offsetMs
-      const achieved = time.now >= ts
-      return { label: m.label, ts, achieved, remaining: achieved ? null : formatDuration(ts - time.now), ago: achieved ? relativeAgo(ts, time.now) : null }
+function buildMilestones(defs, baseTs) {
+  if (baseTs === null) return []
+  return defs.map(m => {
+    const ts       = baseTs + m.offsetMs
+    const achieved = time.now >= ts
+    return { label: m.label, ts, achieved, remaining: achieved ? null : formatDuration(ts - time.now), ago: achieved ? relativeAgo(ts, time.now) : null }
+  })
+}
+
+// Milestone groups — each section only shows if the user has relevant history
+const milestoneGroups = computed(() => {
+  const groups = []
+
+  if (lastCombustibleTs.value !== null) {
+    groups.push({
+      title: 'quit smoking',
+      milestones: buildMilestones(COMBUSTION_MILESTONES, lastCombustibleTs.value),
     })
+  }
+
+  if (lastHabitTs.value !== null) {
+    groups.push({
+      title: 'quit vaping / pouches',
+      milestones: buildMilestones(HABIT_MILESTONES, lastHabitTs.value),
+    })
+  }
+
+  if (lastAnyTs.value !== null) {
+    groups.push({
+      title: 'nicotine free',
+      milestones: buildMilestones(NICOTINE_FREE_MILESTONES, lastAnyTs.value),
+    })
+  }
+
+  return groups
 })
 </script>
