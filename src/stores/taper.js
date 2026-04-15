@@ -29,14 +29,14 @@ export const DELIVERY_TABLE = [
 // Each phase references a rank from the delivery table.
 // daysMin = minimum days to stay (receptor downregulation needs ~5 days).
 export const DEFAULT_PLAN = [
-  { phase: 1, rank: 1,  daysMin: 5, label: 'Full Strength' },
-  { phase: 2, rank: 3,  daysMin: 5, label: 'First Cut' },
-  { phase: 3, rank: 5,  daysMin: 5, label: 'Mid Dose' },
-  { phase: 4, rank: 6,  daysMin: 5, label: '24h Switch' },
-  { phase: 5, rank: 10, daysMin: 5, label: 'Low Dose' },
-  { phase: 6, rank: 11, daysMin: 5, label: 'Taper Down' },
-  { phase: 7, rank: 13, daysMin: 5, label: 'Half 24h' },
-  { phase: 8, rank: 15, daysMin: 5, label: 'Exit' },
+  { phase: 1, rank: 1,  daysMin: 4, label: 'Full Strength' },
+  { phase: 2, rank: 3,  daysMin: 4, label: 'First Cut' },
+  { phase: 3, rank: 5,  daysMin: 4, label: 'Mid Dose' },
+  { phase: 4, rank: 6,  daysMin: 4, label: '24h Switch' },
+  { phase: 5, rank: 10, daysMin: 4, label: 'Low Dose' },
+  { phase: 6, rank: 11, daysMin: 4, label: 'Taper Down' },
+  { phase: 7, rank: 13, daysMin: 4, label: 'Half 24h' },
+  { phase: 8, rank: 15, daysMin: 4, label: 'Exit' },
 ]
 
 function deliveryForRank(rank) {
