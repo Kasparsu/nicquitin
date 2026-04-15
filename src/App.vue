@@ -2,8 +2,8 @@
   <div class="min-h-screen bg-base-200 p-4 pb-24">
     <div class="max-w-xl mx-auto">
 
-      <!-- Header -->
-      <div class="pt-4 pb-4">
+      <!-- Header (home only) -->
+      <div v-if="$route.name === 'home'" class="pt-4 pb-4">
         <h1 class="text-3xl font-bold">NicZero</h1>
         <p class="text-base-content/60 text-sm">track your nicotine usage</p>
       </div>

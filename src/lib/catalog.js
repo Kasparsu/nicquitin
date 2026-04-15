@@ -1,0 +1,314 @@
+// Estonian market product catalog.
+// Cigarette nicotine values from official Estonian EMTA data (mg per cigarette).
+// Other categories use clinical estimates.
+
+function cig(name, price, nicotineMg, coMg) {
+  return {
+    name, price, category: 'cigarette', emoji: '🚬',
+    nicotineMg, coMg, releaseType: 'instant', releaseDurationH: 0,
+    hasPuffCount: false, producesCO: true, isNRT: false,
+  }
+}
+
+function cigar(name, price, mg = 5) {
+  return {
+    name, price, category: 'cigar', emoji: '🍂',
+    nicotineMg: mg, releaseType: 'instant', releaseDurationH: 0,
+    hasPuffCount: false, producesCO: true, isNRT: false,
+  }
+}
+
+function cigarillo(name, price, mg = 1.5) {
+  return {
+    name, price, category: 'cigarillo', emoji: '🍂',
+    nicotineMg: mg, releaseType: 'instant', releaseDurationH: 0,
+    hasPuffCount: false, producesCO: true, isNRT: false,
+  }
+}
+
+function ecig(name, price, mgPerMl, volumeMl = 2, estPuffs = 400) {
+  const totalMg = mgPerMl * volumeMl
+  return {
+    name, price, category: 'e-cigarette', emoji: '💨',
+    nicotineMg: totalMg / estPuffs, releaseType: 'instant', releaseDurationH: 0,
+    hasPuffCount: true, cartridgeNicotineMg: totalMg, cartridgeTotalPuffs: estPuffs,
+    useCartridgeCalc: true, producesCO: false, isNRT: false,
+  }
+}
+
+function snus(name, price, mgPerPouch) {
+  // Actual delivery ~60-80% of listed amount through buccal absorption
+  return {
+    name, price, category: 'snus', emoji: '🫙',
+    nicotineMg: mgPerPouch * 0.7, releaseType: 'slow', releaseDurationH: 1,
+    hasPuffCount: false, hasSession: true, hasReuseOption: true,
+    producesCO: false, isNRT: false,
+  }
+}
+
+function terea(name, price) {
+  return {
+    name, price, category: 'heated-tobacco', emoji: '🔥',
+    nicotineMg: 0.5, releaseType: 'instant', releaseDurationH: 0,
+    hasPuffCount: true, producesCO: false, isNRT: false,
+  }
+}
+
+function rollingTobacco(name, price, grams) {
+  // ~0.7g per rolled cigarette, ~1mg nicotine per rolled cig
+  return {
+    name, price, category: 'rolling-tobacco', emoji: '🍃',
+    nicotineMg: 1.0, releaseType: 'instant', releaseDurationH: 0,
+    hasPuffCount: false, producesCO: true, isNRT: false,
+    note: `${grams}g pack`,
+  }
+}
+
+function herbalCig(name, price) {
+  return {
+    name, price, category: 'herbal', emoji: '🌿',
+    nicotineMg: 0, releaseType: 'instant', releaseDurationH: 0,
+    hasPuffCount: false, producesCO: true, isNRT: false,
+  }
+}
+
+export const CATALOG = [
+  // ═══ CIGARETTES (nicotine & CO from official Estonian EMTA data) ════════════
+  // Camel
+  cig('Camel Blue', 7.00, 0.7, 9),
+  cig('Camel Compact Sky Blue', 6.70, 0.3, 5),
+  cig('Camel Yellow', 7.00, 0.9, 10),
+  // Chesterfield
+  cig('Chesterfield 40 Maxi Blue', 11.80, 0.4, 8),
+  cig('Chesterfield Blue', 6.40, 0.4, 8),
+  cig('Chesterfield Blue 100', 6.40, 0.4, 8),
+  cig('Chesterfield Compact', 6.20, 0.5, 7),
+  cig('Chesterfield Linea Rose SSL', 6.30, 0.4, 4),
+  cig('Chesterfield Linea SSL', 6.00, 0.5, 6),
+  cig('Chesterfield Original', 6.40, 0.7, 10),
+  cig('Chesterfield Original 100', 6.40, 0.7, 10),
+  cig('Chesterfield Silver', 6.40, 0.3, 5),
+  // Kent
+  cig('Kent Core Silver', 6.70, 0.1, 2),
+  cig('Kent Core White', 6.70, 0.3, 5),
+  cig('Kent Green Marine SSL', 6.50, 0.4, 5),
+  cig('Kent Surround', 7.10, 0.4, 5),
+  // LD
+  cig('LD Blue', 6.40, 0.5, 10),
+  cig('LD Blue 100', 6.40, 0.7, 10),
+  cig('LD Blue Superline', 6.30, 0.3, 3),
+  cig('LD Club Compact Blue', 6.20, 0.4, 9),
+  cig('LD Green', 6.40, 0.6, 8),
+  cig('LD Green Superline', 6.30, 0.5, 4),
+  cig('LD Red', 6.40, 0.8, 10),
+  cig('LD Red 100', 6.40, 0.8, 10),
+  cig('LD Silver', 6.40, 0.3, 7),
+  // LM (L&M)
+  cig('LM Blue Label', 6.70, 0.5, 9),
+  cig('LM Link', 6.50, 0.4, 7),
+  cig('LM Link SSL', 5.70, 0.4, 5),
+  cig('LM Original Label', 5.70, 0.7, 9),
+  cig('LM Silver Blue Label', 6.70, 0.3, 4),
+  // Marlboro
+  cig('Marlboro Advance Blue', 6.70, 0.4, 6),
+  cig('Marlboro Fine Touch', 6.70, 0.3, 4),
+  cig('Marlboro Fine Touch SSL', 6.70, 0.3, 3),
+  cig('Marlboro Gold', 7.00, 0.5, 7),
+  cig('Marlboro Gold 25tk', 8.00, 0.5, 7),
+  cig('Marlboro Red', 7.00, 0.7, 9),
+  cig('Marlboro White', 6.70, 0.1, 2),
+  // Parliament
+  cig('Parliament Aqua Blue', 8.00, 0.5, 7),
+  cig('Parliament Manhattan NY', 6.50, 0.5, 7),
+  cig('Parliament Manhattan NY Compact', 6.30, 0.5, 7),
+  // Rothmans
+  cig('Rothmans Blue', 6.30, 0.5, 8),
+  cig('Rothmans Demi Blue', 6.30, 0.5, 6),
+  cig('Rothmans Red', 6.30, 0.7, 10),
+  cig('Rothmans Silver', 6.30, 0.3, 5),
+  // West
+  cig('West Blue', 6.20, 0.5, 10),
+  cig('West Blue 100', 6.20, 0.5, 10),
+  cig('West Red', 6.20, 0.7, 10),
+  cig('West Silver', 6.20, 0.3, 5),
+  // Winston
+  cig('Winston Blue', 6.70, 0.6, 9),
+  cig('Winston Blue Line', 6.90, 0.5, 4),
+  cig('Winston Compact Blue', 6.50, 0.5, 7),
+  cig('Winston Compact Silver', 6.50, 0.3, 5),
+  cig('Winston Red', 6.90, 0.8, 10),
+  cig('Winston White', 6.70, 0.1, 2),
+  cig('Winston White Line', 6.90, 0.1, 1),
+  cig('Winston Xspression', 6.70, 0.5, 8),
+  cig('Winston Xspression Line', 6.90, 0.6, 5),
+
+  // ═══ CIGARILLOS ═══════════════════════════════════════════════════════════
+  cigarillo('Al Capone Flame Filter', 7.20, 1.5),
+  cigarillo('Al Capone Gold Filter', 7.20, 1.5),
+  cigarillo('Al Capone Pockets Filter', 10.90, 1.5),
+  cigarillo('Al Capone Sunset Filter', 6.80, 1.5),
+  cigarillo('Colts Beige Filter', 6.40, 1.2),
+  cigarillo('Colts Ruby Filter', 6.40, 1.2),
+  cigarillo('Ritmeester Moods Filter', 9.40, 1.5),
+  cigarillo('Ritmeester Moods Flame', 9.00, 1.5),
+  cigarillo('Signature Blue', 6.90, 1.5),
+  cigarillo('Signature Original', 6.90, 1.5),
+  cigarillo('Winston Cigarillos Purple Green', 5.80, 1.2),
+  cigarillo('WTF Cray Filter (Apple)', 13.00, 1.5),
+  cigarillo('WTF Squad Filter (Lemon)', 13.00, 1.5),
+  cigarillo('WTH LIT Filter (Dark Berry)', 14.00, 1.5),
+  cigarillo('WTH Sheesh Filter (Vanilla)', 13.00, 1.5),
+  cigarillo('Handelsgold Blond', 4.50, 2),
+  cigarillo('Handelsgold Classic', 4.50, 2),
+
+  // ═══ CIGARS ═══════════════════════════════════════════════════════════════
+  cigar('Cohiba Club', 19.00, 3),
+  cigar('Cohiba Mini', 18.00, 2),
+  cigar('Montecristo Mini', 15.00, 2),
+  cigar('Romeo Y Julieta Mini', 13.30, 2),
+  cigar('Guantanamera', 4.50, 8),
+  cigar('Brick House Corona', 6.50, 10),
+  cigar('Brick House Robusto Maduro', 9.00, 12),
+  cigar('Brick House Toro', 8.20, 14),
+  cigar('Rocky Patel Decade', 8.70, 12),
+  cigar('Romeo Y Julieta No.1', 14.00, 12),
+  cigar('Romeo Y Julieta No.2', 13.00, 10),
+  cigar('Romeo Y Julieta No.3', 12.00, 8),
+  cigar('H.Upmann Coronas Junior', 11.00, 8),
+  cigar('H.Upmann Coronas Major', 13.00, 12),
+  cigar('Punch Petit Coronations', 11.00, 8),
+  cigar('Quintero Favoritos', 8.00, 6),
+  cigar('Quorum Classic Robusto', 4.50, 10),
+  cigar('Toscanello Nero Cioccolato', 8.50, 4),
+  cigar('Toscanello Rosso Caffe', 8.50, 4),
+  cigar('Toscano Classico', 9.90, 6),
+
+  // ═══ E-CIGARETTES ═════════════════════════════════════════════════════════
+  ecig('Friobar Ice Menthol 20mg', 14.90, 20, 2, 400),
+  ecig('Vuse Go Gold Tobacco 10mg', 6.50, 10, 2, 400),
+  ecig('Vuse Go Gold Tobacco 20mg', 6.50, 20, 2, 400),
+  ecig('Vuse Go Menthol Blue 10mg', 6.50, 10, 2, 400),
+  ecig('Vuse Go Menthol Blue 20mg', 6.50, 20, 2, 400),
+  ecig('Vuse Go Menthol Green 10mg', 6.50, 10, 2, 400),
+  ecig('Vuse Go Menthol Green 20mg', 6.50, 20, 2, 400),
+  ecig('Hart Bombay Ice Mint 20mg', 6.25, 20, 2, 400),
+  ecig('Hart Cold Mint 20mg', 6.25, 20, 2, 400),
+  ecig('Hart Manhattan Mint 20mg', 6.25, 20, 2, 400),
+  ecig('Hart Manhattan Mint 0%', 6.25, 0, 2, 400),
+  ecig('Hart Mint Absolute 20mg', 6.25, 20, 2, 400),
+  ecig('Hart Polar 20mg', 6.25, 20, 2, 400),
+  ecig('Hart Safari Tobacco 20mg', 6.25, 20, 2, 400),
+  ecig('IVG Cristal Menthol 20mg', 6.85, 20, 2, 400),
+  ecig('IVG Polar Mint 20mg', 6.85, 20, 2, 400),
+  ecig('Killa Switch Mint Ice 20mg', 6.20, 20, 2, 400),
+  ecig('Killa Switch Blue Mint 20mg', 6.20, 20, 2, 400),
+  ecig('Killa Switch Frozen Mint 20mg', 6.20, 20, 2, 400),
+  ecig('Killa Switch Sky Mint 20mg', 6.20, 20, 2, 400),
+  ecig('Kubik Cool Mint 20mg', 4.00, 20, 2, 400),
+  ecig('Nicorex Air Menthol 2%', 7.25, 20, 2, 400),
+  ecig('Nicorex More Ice Menthol 1%', 7.00, 10, 2, 400),
+  ecig('Nicorex More Ice Menthol 2%', 7.00, 20, 2, 400),
+  ecig('OSUN Light Tobacco 2%', 6.30, 20, 2, 400),
+  ecig('OSUN Menthol Light 2%', 6.30, 20, 2, 400),
+  ecig('Salt Cool Mint 2%', 6.60, 20, 2, 400),
+  ecig('Salt Cristallite Breeze 20mg', 6.40, 20, 2, 400),
+  ecig('Salt Cristallite Menthol 20mg', 6.40, 20, 2, 400),
+  ecig('Salt Soft Mint 2%', 3.30, 20, 2, 400),
+  ecig('SKY Smoke Ice Menthol', 7.20, 20, 2, 400),
+  ecig('SKY Smoke Menthol', 7.20, 20, 2, 400),
+  ecig('SKY Smoke Tobacco', 7.20, 20, 2, 400),
+  ecig('Easysmoke Ice Menthol', 7.35, 20, 2, 400),
+  ecig('Easysmoke S-Tobacco', 7.00, 20, 2, 400),
+  ecig('Grant Menthol', 7.20, 20, 2, 400),
+
+  // ═══ SNUS / NICOTINE POUCHES ══════════════════════════════════════════════
+  snus('ACE Cool Mint 12mg', 5.55, 12),
+  snus('ACE Eucalyptus 16mg', 5.55, 16),
+  snus('ACE X Cool Mint 16mg', 5.55, 16),
+  snus('ACE X Cool Mint Extend 10mg', 5.55, 10),
+  snus('ACE X Cosmic Cool Mint', 6.20, 16),
+  snus('ACE X Guarana Chili Boost', 5.55, 16),
+  snus('Crew Sneaky Spearmint 15.4mg', 6.20, 15.4),
+  snus('Garant Extreme 19.8mg', 6.60, 19.8),
+  snus('Garant Extreme Cherry 19.8mg', 6.60, 19.8),
+  snus('Garant Extreme Freeze 19.6mg', 6.60, 19.6),
+  snus('Garant Ice Cool 15.3mg', 6.60, 15.3),
+  snus('Iceberg Cherry 50mg', 6.00, 50),
+  snus('Iceberg Cool Mint 50mg', 6.00, 50),
+  snus('Killa Blueberry 16mg', 5.35, 16),
+  snus('Killa Cola 16mg', 5.35, 16),
+  snus('Killa Cold Mint 16mg', 5.35, 16),
+  snus('Killa Dry Frosted Mint 16mg', 6.65, 16),
+  snus('Killa Watermelon 16mg', 5.55, 16),
+  snus('Pablo Ice Gold 30mg', 5.50, 30),
+  snus('PAZ Ice Cool 16mg', 5.00, 16),
+  snus('PAZ X-Freeze 20mg', 5.00, 20),
+  snus('Skruf Intense Peppermint 12mg', 5.70, 12),
+  snus('Skruf Super White 6mg', 5.70, 6),
+  snus('Skruf Super White 10mg', 5.70, 10),
+  snus('Skruf Super White 11mg', 5.70, 11),
+  snus('Tups Arktika #4 10.5mg', 5.40, 10.5),
+  snus('Tups Arktika #5 17.5mg', 5.40, 17.5),
+  snus('Tups X-Treme 20mg', 5.40, 20),
+  snus('Velo Bright Spearmint 6mg', 5.00, 6),
+  snus('Velo Bright Spearmint 10mg', 5.70, 10),
+  snus('Velo Bright Spearmint X-Int 17mg', 6.40, 17),
+  snus('Velo Crispy Peppermint 10mg', 5.70, 10),
+  snus('Velo Crispy Peppermint X-Int 17mg', 6.40, 17),
+  snus('Velo Eucalyptus Storm 14mg', 6.40, 14),
+  snus('Velo Freezing Peppermint 10.9mg', 5.70, 10.9),
+  snus('Velo Freezing Peppermint Int 14mg', 6.40, 14),
+  snus('Velo Freezing Peppermint X-Int 17mg', 6.40, 17),
+  snus('Velo Ice Mellow Cherry 6mg', 5.00, 6),
+  snus('Velo Orange Spark X-Int 17mg', 6.40, 17),
+  snus('Velo Peppermint Storm Int 17mg', 6.40, 17),
+  snus('White Fox 16mg', 7.10, 16),
+
+  // ═══ HEATED TOBACCO (IQOS) ════════════════════════════════════════════════
+  terea('TEREA Amber', 5.80),
+  terea('TEREA Bronze', 5.80),
+  terea('TEREA Russet', 5.80),
+  terea('TEREA Silver', 5.80),
+  terea('TEREA Teak', 5.80),
+  terea('TEREA Turquoise', 5.80),
+  terea('TEREA Yellow', 5.80),
+
+  // ═══ ROLLING TOBACCO ══════════════════════════════════════════════════════
+  rollingTobacco('Chesterfield Green 30g', 6.00, 30),
+  rollingTobacco('LD Blue Tobacco 30g', 6.90, 30),
+  rollingTobacco('LD Blue Tobacco 80g', 18.00, 80),
+  rollingTobacco('LD Red Tobacco 30g', 6.90, 30),
+  rollingTobacco('LD Red Tobacco 80g', 18.00, 80),
+  rollingTobacco('LM Blue Tobacco 30g', 7.65, 30),
+  rollingTobacco('LM Blue Tobacco 80g', 18.80, 80),
+  rollingTobacco('LM Red Tobacco 30g', 7.65, 30),
+  rollingTobacco('LM Red Tobacco 80g', 18.80, 80),
+  rollingTobacco('Pueblo Blue 30g', 9.85, 30),
+  rollingTobacco('Pueblo RYO 30g', 9.85, 30),
+  rollingTobacco('West Red Tobacco 30g', 7.30, 30),
+  rollingTobacco('West Red Tobacco 80g', 17.80, 80),
+  rollingTobacco('West Silver Tobacco 30g', 7.30, 30),
+  rollingTobacco('West Silver Tobacco 80g', 17.80, 80),
+
+  // ═══ HERBAL (NICOTINE-FREE) ═══════════════════════════════════════════════
+  herbalCig('Levia Blue (tobacco-free)', 5.80),
+  herbalCig('Levia Green (tobacco-free)', 5.80),
+  herbalCig('Levia Purple (tobacco-free)', 5.80),
+]
+
+export const CATEGORIES = [
+  { id: 'cigarette',       label: 'Cigarettes',       emoji: '🚬' },
+  { id: 'cigarillo',       label: 'Cigarillos',       emoji: '🍂' },
+  { id: 'cigar',           label: 'Cigars',           emoji: '🍂' },
+  { id: 'e-cigarette',     label: 'E-cigarettes',     emoji: '💨' },
+  { id: 'snus',            label: 'Snus / Pouches',   emoji: '🫙' },
+  { id: 'heated-tobacco',  label: 'Heated Tobacco',   emoji: '🔥' },
+  { id: 'rolling-tobacco', label: 'Rolling Tobacco',  emoji: '🍃' },
+  { id: 'herbal',          label: 'Herbal',           emoji: '🌿' },
+]
+
+export function searchCatalog(query) {
+  if (!query || query.length < 2) return []
+  const q = query.toLowerCase()
+  return CATALOG.filter(p => p.name.toLowerCase().includes(q))
+}

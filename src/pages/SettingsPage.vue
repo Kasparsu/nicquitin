@@ -157,9 +157,47 @@
 
       <button class="btn btn-outline btn-sm w-full" @click="addProduct">+ add product</button>
 
+      <!-- Product search -->
+      <div class="space-y-2 mt-2">
+        <div class="text-xs font-semibold text-base-content/50 uppercase tracking-wide">search products</div>
+        <input
+          type="text"
+          class="input input-sm input-bordered w-full"
+          placeholder="Search cigarettes, snus, vapes..."
+          v-model="catalogQuery"
+        />
+        <!-- Category filter -->
+        <div v-if="!catalogQuery" class="flex gap-1 flex-wrap">
+          <button
+            v-for="cat in catalogCategories" :key="cat.id"
+            class="btn btn-ghost btn-xs gap-1"
+            :class="catalogFilter === cat.id ? 'btn-active' : ''"
+            @click="catalogFilter = catalogFilter === cat.id ? null : cat.id"
+          >{{ cat.emoji }} {{ cat.label }}</button>
+        </div>
+        <!-- Search results -->
+        <div v-if="catalogResults.length" class="max-h-48 overflow-y-auto space-y-0.5">
+          <button
+            v-for="item in catalogResults" :key="item.name"
+            class="btn btn-ghost btn-xs w-full justify-between h-auto py-1.5"
+            @click="addCatalogItem(item)"
+          >
+            <span class="flex items-center gap-1.5 min-w-0">
+              <span>{{ item.emoji }}</span>
+              <span class="text-xs truncate">{{ item.name }}</span>
+            </span>
+            <span class="text-[10px] text-base-content/40 shrink-0 ml-2">
+              {{ item.nicotineMg.toFixed(2) }}mg
+              <span v-if="item.price" class="ml-1">{{ item.price.toFixed(2) }}€</span>
+            </span>
+          </button>
+        </div>
+        <div v-else-if="catalogQuery.length >= 2" class="text-xs text-base-content/40 text-center py-2">no results</div>
+      </div>
+
       <!-- NRT presets -->
       <div v-if="availablePresets.length" class="space-y-1 mt-2">
-        <div class="text-xs font-semibold text-base-content/50 uppercase tracking-wide">add NRT preset</div>
+        <div class="text-xs font-semibold text-base-content/50 uppercase tracking-wide">NRT presets</div>
         <div class="grid grid-cols-2 gap-1">
           <button
             v-for="preset in availablePresets" :key="preset.id"
@@ -300,6 +338,7 @@ import { calcHalfLife } from '../lib/pharmacokinetics.js'
 import { useLogStore }      from '../stores/log.js'
 import { useProfileStore }  from '../stores/profile.js'
 import { useProductsStore, NRT_PRESETS } from '../stores/products.js'
+import { searchCatalog, CATALOG, CATEGORIES as CATALOG_CATEGORIES } from '../lib/catalog.js'
 import { useSessionsStore } from '../stores/sessions.js'
 import { useProgressStore } from '../stores/progress.js'
 import { useSyncStore }     from '../stores/sync.js'
@@ -351,6 +390,20 @@ const availablePresets = computed(() =>
   NRT_PRESETS.filter(preset => !editableProducts.value.some(p => p.id === preset.id))
 )
 
+const catalogQuery = ref('')
+const catalogFilter = ref(null)
+const catalogCategories = CATALOG_CATEGORIES
+
+const catalogResults = computed(() => {
+  if (catalogQuery.value.length >= 2) {
+    return searchCatalog(catalogQuery.value).slice(0, 30)
+  }
+  if (catalogFilter.value) {
+    return CATALOG.filter(p => p.category === catalogFilter.value).slice(0, 30)
+  }
+  return []
+})
+
 // ─── Actions ─────────────────────────────────────────────────────────────────
 
 function saveProfile() {
@@ -382,6 +435,30 @@ function deleteProduct(id) {
 
 function addPreset(preset) {
   editableProducts.value.push({ ...preset })
+}
+
+function addCatalogItem(item) {
+  const id = `catalog-${item.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
+  if (editableProducts.value.some(p => p.id === id)) return
+  editableProducts.value.push({
+    id,
+    name: item.name,
+    emoji: item.emoji,
+    nicotineMg: item.nicotineMg,
+    releaseType: item.releaseType,
+    releaseDurationH: item.releaseDurationH ?? 0,
+    hasPuffCount: item.hasPuffCount ?? false,
+    useCartridgeCalc: item.useCartridgeCalc ?? false,
+    cartridgeNicotineMg: item.cartridgeNicotineMg ?? 0,
+    cartridgeTotalPuffs: item.cartridgeTotalPuffs ?? 0,
+    hasSession: item.hasSession ?? false,
+    hasSwallowOption: item.hasSwallowOption ?? false,
+    hasReuseOption: item.hasReuseOption ?? false,
+    producesCO: item.producesCO ?? false,
+    isNRT: item.isNRT ?? false,
+  })
+  catalogQuery.value = ''
+  catalogFilter.value = null
 }
 
 function addProduct() {

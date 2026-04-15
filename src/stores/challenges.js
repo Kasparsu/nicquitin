@@ -85,6 +85,11 @@ export const useChallengesStore = defineStore('challenges', () => {
     return recentAll.length > 0 ? recentResisted.length / recentAll.length : 0
   })
 
+  function removeChallenge(ts) {
+    log.value = log.value.filter(c => c.ts !== ts)
+    _persist()
+  }
+
   function complete(suggestion, wasNRT) {
     log.value.unshift({
       ts: Date.now(),
@@ -109,6 +114,6 @@ export const useChallengesStore = defineStore('challenges', () => {
     log, totalCompleted, todayCount, streak,
     cravingEvents, totalCravings, resistRate, avgCravingIntervalMs,
     lastCravingTs, predictedNextCravingTs, cravingsPerDay7d, resistRate7d,
-    complete, load,
+    removeChallenge, complete, load,
   }
 })
