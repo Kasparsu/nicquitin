@@ -30,6 +30,15 @@ function btn(wrapper, text) {
   return wrapper.findAll('button').find(b => b.text().includes(text))
 }
 
+// Products used for session tests (patch/gum removed from defaults, now NRT presets)
+const SESSION_TEST_PRODUCTS = [
+  { id: 'cigarette', name: 'Cigarette', emoji: '🚬', nicotineMg: 1.1, releaseType: 'instant', releaseDurationH: 0, hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0, cartridgeTotalPuffs: 0, hasSession: false, hasSwallowOption: false, hasReuseOption: false, producesCO: true, isNRT: false },
+  { id: 'vape', name: 'Vape', emoji: '💨', nicotineMg: 0.1, releaseType: 'instant', releaseDurationH: 0, hasPuffCount: true, useCartridgeCalc: true, cartridgeNicotineMg: 20, cartridgeTotalPuffs: 200, hasSession: false, hasSwallowOption: false, hasReuseOption: false, producesCO: false, isNRT: false },
+  { id: 'patch', name: 'Patch (21mg)', emoji: '🩹', nicotineMg: 14, releaseType: 'slow', releaseDurationH: 16, hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0, cartridgeTotalPuffs: 0, hasSession: true, hasSwallowOption: false, hasReuseOption: false, producesCO: false, isNRT: true },
+  { id: 'gum', name: 'Gum (4mg)', emoji: '🟡', nicotineMg: 2, releaseType: 'slow', releaseDurationH: 0.5, hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0, cartridgeTotalPuffs: 0, hasSession: true, hasSwallowOption: true, hasReuseOption: false, producesCO: false, isNRT: true },
+  { id: 'pouch', name: 'Pouch', emoji: '🫙', nicotineMg: 3, releaseType: 'slow', releaseDurationH: 1, hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0, cartridgeTotalPuffs: 0, hasSession: true, hasSwallowOption: false, hasReuseOption: true, producesCO: false, isNRT: false },
+]
+
 // ─── Initial render ───────────────────────────────────────────────────────────
 
 describe('initial render', () => {
@@ -118,7 +127,7 @@ describe('vape puff flow', () => {
 
 describe('patch session', () => {
   it('starts a session when patch button is clicked (no active session)', async () => {
-    const wrapper = await mountApp({}, '/log')
+    const wrapper = await mountApp({ 'nicquitin-products': SESSION_TEST_PRODUCTS }, '/log')
     await btn(wrapper, 'Patch')?.trigger('click')
     const sessions = JSON.parse(localStorage.getItem('nicquitin-sessions-v2') ?? '[]')
     const patch = sessions.find(s => s.productId === 'patch')
@@ -127,7 +136,7 @@ describe('patch session', () => {
   })
 
   it('shows the stop panel when patch is clicked while a session is active', async () => {
-    const wrapper = await mountApp({}, '/log')
+    const wrapper = await mountApp({ 'nicquitin-products': SESSION_TEST_PRODUCTS }, '/log')
     await btn(wrapper, 'Patch')?.trigger('click')
     await flushPromises()
     await btn(wrapper, 'Patch')?.trigger('click')
@@ -136,7 +145,7 @@ describe('patch session', () => {
   })
 
   it('logs a session entry and clears the active session on stop', async () => {
-    const wrapper = await mountApp({}, '/log')
+    const wrapper = await mountApp({ 'nicquitin-products': SESSION_TEST_PRODUCTS }, '/log')
     await btn(wrapper, 'Patch')?.trigger('click')
     await flushPromises()
     await btn(wrapper, 'Patch')?.trigger('click')
@@ -156,7 +165,7 @@ describe('patch session', () => {
 
 describe('gum session — spit vs swallow', () => {
   it('shows spit and swallow options', async () => {
-    const wrapper = await mountApp({}, '/log')
+    const wrapper = await mountApp({ 'nicquitin-products': SESSION_TEST_PRODUCTS }, '/log')
     await btn(wrapper, 'Gum')?.trigger('click')  // start session
     await flushPromises()
     await btn(wrapper, 'Gum')?.trigger('click')  // open stop panel
@@ -169,7 +178,7 @@ describe('gum session — spit vs swallow', () => {
     const startTs = Date.now() - 15 * 60_000
     const sessions = { gum: { startTs, reuseCount: 0 } }
 
-    const wrapper = await mountApp({ 'nicquitin-sessions': sessions }, '/log')
+    const wrapper = await mountApp({ 'nicquitin-sessions': sessions, 'nicquitin-products': SESSION_TEST_PRODUCTS }, '/log')
     await btn(wrapper, 'Gum')?.trigger('click')  // open stop panel (session already active)
     await flushPromises()
     await btn(wrapper, 'spit out')?.trigger('click')
@@ -179,7 +188,7 @@ describe('gum session — spit vs swallow', () => {
     const spitDose = log[0].nicotineMg
 
     localStorage.clear()
-    const w2 = await mountApp({ 'nicquitin-sessions': { gum: { startTs, reuseCount: 0 } } }, '/log')
+    const w2 = await mountApp({ 'nicquitin-sessions': { gum: { startTs, reuseCount: 0 } }, 'nicquitin-products': SESSION_TEST_PRODUCTS }, '/log')
     await btn(w2, 'Gum')?.trigger('click')  // open stop panel
     await flushPromises()
     await btn(w2, 'swallow')?.trigger('click')
@@ -398,7 +407,7 @@ describe('patterns unlock after MIN_ENTRIES_FOR_PATTERNS uses', () => {
 describe('active sessions card', () => {
   it('shows "in use" card when a session is active', async () => {
     const sessions = { patch: { startTs: Date.now() - 3_600_000, reuseCount: 0 } }
-    const wrapper  = await mountApp({ 'nicquitin-sessions': sessions }, '/log')
+    const wrapper  = await mountApp({ 'nicquitin-sessions': sessions, 'nicquitin-products': SESSION_TEST_PRODUCTS }, '/log')
     expect(wrapper.text()).toContain('in use')
   })
 

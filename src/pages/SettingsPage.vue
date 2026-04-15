@@ -156,6 +156,22 @@
       </div>
 
       <button class="btn btn-outline btn-sm w-full" @click="addProduct">+ add product</button>
+
+      <!-- NRT presets -->
+      <div v-if="availablePresets.length" class="space-y-1 mt-2">
+        <div class="text-xs font-semibold text-base-content/50 uppercase tracking-wide">add NRT preset</div>
+        <div class="grid grid-cols-2 gap-1">
+          <button
+            v-for="preset in availablePresets" :key="preset.id"
+            class="btn btn-ghost btn-xs justify-start gap-1 h-auto py-1.5 text-left"
+            @click="addPreset(preset)"
+          >
+            <span>{{ preset.emoji }}</span>
+            <span class="text-xs truncate">{{ preset.name }}</span>
+          </button>
+        </div>
+      </div>
+
       <button class="btn btn-primary btn-sm w-full" @click="saveProducts">save products</button>
     </template>
 
@@ -245,7 +261,7 @@ import { storeToRefs } from 'pinia'
 import { calcHalfLife } from '../lib/pharmacokinetics.js'
 import { useLogStore }      from '../stores/log.js'
 import { useProfileStore }  from '../stores/profile.js'
-import { useProductsStore } from '../stores/products.js'
+import { useProductsStore, NRT_PRESETS } from '../stores/products.js'
 import { useSessionsStore } from '../stores/sessions.js'
 import { useProgressStore } from '../stores/progress.js'
 import { useSyncStore }     from '../stores/sync.js'
@@ -283,6 +299,10 @@ onMounted(() => {
 
 const previewHalfLifeH = computed(() => calcHalfLife(editableProfile.value))
 
+const availablePresets = computed(() =>
+  NRT_PRESETS.filter(preset => !editableProducts.value.some(p => p.id === preset.id))
+)
+
 // ─── Actions ─────────────────────────────────────────────────────────────────
 
 function saveProfile() {
@@ -298,6 +318,10 @@ function toggleExpanded(id) { expandedProduct.value = expandedProduct.value === 
 function deleteProduct(id) {
   editableProducts.value = editableProducts.value.filter(p => p.id !== id)
   if (expandedProduct.value === id) expandedProduct.value = null
+}
+
+function addPreset(preset) {
+  editableProducts.value.push({ ...preset })
 }
 
 function addProduct() {
