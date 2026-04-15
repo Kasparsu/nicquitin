@@ -23,7 +23,7 @@
         </div>
       </div>
       <div class="divider text-xs my-0">recovery milestones</div>
-      <div v-if="lastHabitUsed" class="space-y-2">
+      <div v-if="lastUsageTs !== null" class="space-y-2">
         <div v-for="m in milestones" :key="m.label" class="flex items-center gap-2 text-sm">
           <span class="shrink-0 w-5 text-center">{{ m.achieved ? '✅' : '🔘' }}</span>
           <span class="flex-1 leading-tight" :class="m.achieved ? 'text-success' : 'text-base-content/70'">{{ m.label }}</span>
@@ -39,9 +39,10 @@
 import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { formatDuration, relativeAgo } from '../lib/format.js'
-import { useTimeStore }    from '../stores/time.js'
-import { useLogStore }     from '../stores/log.js'
-import { useProfileStore } from '../stores/profile.js'
+import { useTimeStore }     from '../stores/time.js'
+import { useLogStore }      from '../stores/log.js'
+import { useProfileStore }  from '../stores/profile.js'
+import { useSessionsStore } from '../stores/sessions.js'
 import { useNicotineStore, GAUGE_MAX, CLEAN_THRESHOLD } from '../stores/nicotine.js'
 
 const MILESTONE_DEFS = [
@@ -59,14 +60,25 @@ const { log, lastUsed, lastHabitUsed } = storeToRefs(logStore)
 const { halfLifeH }              = storeToRefs(useProfileStore())
 const { nicotineLevel, gaugeColor, timeUntilClean } = storeToRefs(useNicotineStore())
 
+const sessionsStore = useSessionsStore()
+const { hasActiveSessions } = storeToRefs(sessionsStore)
+
 // Last entry from a combustible product (cigarette, cigar, or any custom with producesCO)
 const lastCombustibleUsed = computed(() =>
   log.value.find(e => e.producesCO === true || e.productId === 'cigarette' || e.productId === 'cigar') ?? null
 )
 
+// For recovery milestones: use last usage of ANY product (including NRT),
+// and if there's an active session (patch on), milestones count from now.
+const lastUsageTs = computed(() => {
+  if (hasActiveSessions.value) return time.now
+  if (!lastUsed.value) return null
+  return lastUsed.value.stoppedTs || lastUsed.value.ts
+})
+
 const milestones = computed(() => {
-  if (!lastHabitUsed.value) return []
-  const baseTs = lastHabitUsed.value.stoppedTs || lastHabitUsed.value.ts
+  if (lastUsageTs.value === null) return []
+  const baseTs = lastUsageTs.value
   return MILESTONE_DEFS
     .filter(m => !m.requiresCombustion || lastCombustibleUsed.value !== null)
     .map(m => {

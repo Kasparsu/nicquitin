@@ -1,17 +1,34 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import { useTimeStore } from './time.js'
+import { useProductsStore } from './products.js'
 import { computeIntervals, computeAvgInterval, computeUsesPerDay7d, computeTrend } from '../lib/patterns.js'
 
 const STORAGE_KEY = 'nicquitin-log'
 const MIN_ENTRIES_FOR_PATTERNS = 5
+const RECENT_WINDOW_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
 
 export const useLogStore = defineStore('log', () => {
   const time = useTimeStore()
+  const productsStore = useProductsStore()
 
   const log = ref([])
 
-  const habitLog      = computed(() => log.value.filter(e => !e.isNRT))
+  // An entry is NRT if its own flag says so OR the product is currently marked NRT
+  function isEntryNRT(e) {
+    if (e.isNRT) return true
+    const product = productsStore.productById(e.productId)
+    return product?.isNRT ?? false
+  }
+
+  // Habit log excludes NRT entries when there are recent non-NRT entries.
+  // If ALL recent entries are NRT (user quit habits, only on patches), NRT starts counting.
+  const habitLog = computed(() => {
+    const cutoff = time.now - RECENT_WINDOW_MS
+    const recentNonNRT = log.value.some(e => e.ts >= cutoff && !isEntryNRT(e))
+    if (recentNonNRT) return log.value.filter(e => !isEntryNRT(e))
+    return log.value
+  })
   const lastUsed      = computed(() => log.value[0] ?? null)
   const lastHabitUsed = computed(() => habitLog.value[0] ?? null)
   const hasEnoughData = computed(() => habitLog.value.length >= MIN_ENTRIES_FOR_PATTERNS)
