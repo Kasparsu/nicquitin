@@ -267,19 +267,29 @@ describe('pouch sessions', () => {
 // ─── Remove / clear log ───────────────────────────────────────────────────────
 
 describe('removing log entries', () => {
-  it('removes the specific entry when ✕ is clicked', async () => {
+  it('removes the specific entry when ✕ is clicked and confirmed', async () => {
     const entry = makeLogEntry({ ts: Date.now() - 3_600_000 })
     const wrapper = await mountApp({ 'nicquitin-log': [entry] }, '/history')
     const removeBtn = wrapper.findAll('button').find(b => b.text() === '✕')
     await removeBtn?.trigger('click')
+    await flushPromises()
+    // Confirm in modal
+    const confirmBtn = wrapper.findAll('button').find(b => b.text() === 'delete')
+    await confirmBtn?.trigger('click')
+    await flushPromises()
     const stored = JSON.parse(localStorage.getItem('nicquitin-log') ?? '[]')
     expect(stored).toHaveLength(0)
   })
 
-  it('clears all entries when "clear all" is clicked', async () => {
+  it('clears all entries when "clear all" is clicked and confirmed', async () => {
     const log = [makeLogEntry(), makeLogEntry({ ts: Date.now() - 1000 })]
     const wrapper = await mountApp({ 'nicquitin-log': log }, '/history')
     await btn(wrapper, 'clear all')?.trigger('click')
+    await flushPromises()
+    // Confirm in modal — find the btn-error inside dialog
+    const confirmBtn = wrapper.find('dialog .btn-error')
+    await confirmBtn?.trigger('click')
+    await flushPromises()
     const stored = JSON.parse(localStorage.getItem('nicquitin-log') ?? '[]')
     expect(stored).toHaveLength(0)
   })

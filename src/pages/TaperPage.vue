@@ -210,11 +210,14 @@
       </div>
     </template>
 
+    <ConfirmModal ref="confirmModal" />
   </div>
 </template>
 
 <script setup>
+import { ref } from 'vue'
 import { storeToRefs } from 'pinia'
+import ConfirmModal from '../components/ConfirmModal.vue'
 import { useTaperStore, DELIVERY_TABLE } from '../stores/taper.js'
 
 const taperStore = useTaperStore()
@@ -242,10 +245,15 @@ function startFromEstimate() {
   setPhase(usageEstimate.value.matchedPhase.index)
 }
 
-function confirmStop() {
-  if (confirm('Stop the taper plan? Your progress will be cleared.')) {
-    stopPlan()
-  }
+const confirmModal = ref(null)
+
+async function confirmStop() {
+  const ok = await confirmModal.value.show({
+    title: 'Stop taper plan?',
+    message: 'Your progress will be cleared. This cannot be undone.',
+    confirmLabel: 'stop plan',
+  })
+  if (ok) stopPlan()
 }
 
 function formatProductName(id) {

@@ -3,7 +3,7 @@
     <!-- Header -->
     <div class="flex justify-between items-center mb-2">
       <h2 class="text-base font-bold">history</h2>
-      <button v-if="allEntries.length" class="btn btn-ghost btn-xs text-error" @click="clearAll">clear all</button>
+      <button v-if="allEntries.length" class="btn btn-ghost btn-xs text-error" @click="confirmClearAll">clear all</button>
     </div>
 
     <!-- Scrollable list -->
@@ -65,7 +65,7 @@
               </div>
               <div class="flex items-center gap-1 shrink-0">
                 <span class="text-base-content/40 text-xs">{{ formatTime(item.ts) }}</span>
-                <button class="btn btn-ghost btn-xs text-error p-0 min-h-0 h-auto leading-none" @click="logStore.removeEntry(item.entry.id)">✕</button>
+                <button class="btn btn-ghost btn-xs text-error p-0 min-h-0 h-auto leading-none" @click="confirmRemove(item.entry)">✕</button>
               </div>
             </div>
 
@@ -95,6 +95,7 @@
       <span class="text-xs text-base-content/40">{{ page + 1 }} / {{ totalPages }}</span>
       <button class="btn btn-ghost btn-xs" :disabled="page >= totalPages - 1" @click="page++">older →</button>
     </div>
+    <ConfirmModal ref="confirmModal" />
   </div>
 </template>
 
@@ -102,6 +103,7 @@
 import { ref, computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { formatDuration } from '../lib/format.js'
+import ConfirmModal from './ConfirmModal.vue'
 import { useLogStore } from '../stores/log.js'
 import { useProductsStore } from '../stores/products.js'
 import { useChallengesStore } from '../stores/challenges.js'
@@ -244,8 +246,23 @@ function saveEdit() {
   editing.value = null
 }
 
-function clearAll() {
-  logStore.clearAll()
-  page.value = 0
+const confirmModal = ref(null)
+
+async function confirmClearAll() {
+  const ok = await confirmModal.value.show({
+    title: 'Clear all history?',
+    message: 'This will permanently delete all logged entries. This cannot be undone.',
+    confirmLabel: 'clear all',
+  })
+  if (ok) { logStore.clearAll(); page.value = 0 }
+}
+
+async function confirmRemove(entry) {
+  const ok = await confirmModal.value.show({
+    title: 'Delete entry?',
+    message: `Remove ${entry.emoji} ${entry.product} from history?`,
+    confirmLabel: 'delete',
+  })
+  if (ok) logStore.removeEntry(entry.id)
 }
 </script>
