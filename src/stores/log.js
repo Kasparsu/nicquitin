@@ -14,11 +14,23 @@ export const useLogStore = defineStore('log', () => {
 
   const log = ref([])
 
-  // An entry is NRT if its own flag says so OR the product is currently marked NRT
+  // Known NRT product ID patterns (covers old and new formats)
+  const NRT_ID_PATTERNS = ['patch', 'gum', 'lozenge', 'nicorette', 'niquitin']
+  const NRT_NAME_PATTERNS = ['patch', 'gum', 'lozenge', 'nicorette', 'niquitin', 'pastille']
+
+  // An entry is NRT if:
+  // 1. Its own isNRT flag is set, OR
+  // 2. The product in the store is marked NRT, OR
+  // 3. The product ID or name matches known NRT patterns
   function isEntryNRT(e) {
     if (e.isNRT) return true
     const product = productsStore.productById(e.productId)
-    return product?.isNRT ?? false
+    if (product?.isNRT) return true
+    const id = (e.productId || '').toLowerCase()
+    if (NRT_ID_PATTERNS.some(p => id.includes(p))) return true
+    const name = (e.product || '').toLowerCase()
+    if (NRT_NAME_PATTERNS.some(p => name.includes(p))) return true
+    return false
   }
 
   // Habit log excludes NRT entries when there are recent non-NRT entries.
@@ -100,6 +112,6 @@ export const useLogStore = defineStore('log', () => {
 
   return {
     log, habitLog, lastUsed, lastHabitUsed, hasEnoughData, intervals, avgIntervalMs, usesPerDay7d, trend, peakHours,
-    load, addEntry, updateEntry, removeEntry, clearAll, importLog,
+    isEntryNRT, load, addEntry, updateEntry, removeEntry, clearAll, importLog,
   }
 })

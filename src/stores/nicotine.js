@@ -31,11 +31,23 @@ export const useNicotineStore = defineStore('nicotine', () => {
     return 'progress-error'
   })
 
+  // mg/h rate: compare current level to level 1 minute ago, extrapolate
+  const nicotineRatePerH = computed(() => {
+    const hl = profile.halfLifeH
+    const oneMinAgo = time.now - 60_000
+    const levelNow  = nicotineLevel.value
+    const levelPrev = Math.max(0,
+      log.log.reduce((s, e) => s + nicotineFromEntry(e, oneMinAgo, hl), 0) +
+      sessions.activeSessionEntries.reduce((s, e) => s + nicotineFromEntry(e, oneMinAgo, hl), 0)
+    )
+    return (levelNow - levelPrev) * 60 // delta per minute → per hour
+  })
+
   const timeUntilClean = computed(() => {
     const entries = [...log.log, ...sessions.activeSessionEntries]
     const ms = computeTimeUntilCleanMs(entries, time.now, profile.halfLifeH)
     return ms != null ? formatDuration(ms) : null
   })
 
-  return { nicotineLevel, gaugeColor, timeUntilClean }
+  return { nicotineLevel, nicotineRatePerH, gaugeColor, timeUntilClean }
 })

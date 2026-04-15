@@ -12,7 +12,10 @@
       <div class="flex items-end justify-between">
         <div>
           <span class="text-4xl font-mono font-bold tabular-nums">{{ nicotineLevel.toFixed(2) }}</span>
-          <span class="text-sm text-base-content/50 ml-1">mg estimated</span>
+          <span class="text-sm text-base-content/50 ml-1">mg</span>
+          <span class="text-xs font-mono ml-2" :class="nicotineRatePerH >= 0 ? 'text-error/60' : 'text-success/60'">
+            {{ nicotineRatePerH >= 0 ? '+' : '' }}{{ nicotineRatePerH.toFixed(2) }} mg/h
+          </span>
         </div>
         <div class="text-right text-sm">
           <div v-if="nicotineLevel > CLEAN_THRESHOLD" class="text-base-content/60">
@@ -79,7 +82,7 @@ const time    = useTimeStore()
 const logStore = useLogStore()
 const { log, lastUsed, lastHabitUsed } = storeToRefs(logStore)
 const { halfLifeH }              = storeToRefs(useProfileStore())
-const { nicotineLevel, gaugeColor, timeUntilClean } = storeToRefs(useNicotineStore())
+const { nicotineLevel, nicotineRatePerH, gaugeColor, timeUntilClean } = storeToRefs(useNicotineStore())
 
 const sessionsStore = useSessionsStore()
 const { hasActiveSessions } = storeToRefs(sessionsStore)
