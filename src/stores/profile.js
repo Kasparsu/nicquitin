@@ -7,6 +7,9 @@ const PROFILE_KEY = 'nicquitin-profile'
 export const DEFAULT_PROFILE = {
   sex: 'male', metabolizer: 'normal',
   menthol: false, pregnant: false, contraceptives: false,
+  // Biometric fields (null = not set, use population defaults)
+  age: null, heightCm: null, weightKg: null,
+  puffStyle: null, // 'light' | 'normal' | 'deep' | null (not set)
 }
 
 export const useProfileStore = defineStore('profile', () => {

@@ -46,6 +46,30 @@
           <span class="text-sm">Hormonal contraceptives</span>
         </label>
       </div>
+      <div class="border-t border-base-300 pt-3 space-y-2">
+        <div class="text-xs text-base-content/50">Vaping profile <span class="text-base-content/30">— optional, improves puff estimates</span></div>
+        <label class="form-control">
+          <div class="label py-0.5"><span class="label-text text-xs">puff style</span></div>
+          <select class="select select-sm select-bordered" v-model="editableProfile.puffStyle">
+            <option :value="null">not set</option>
+            <option v-for="s in PUFF_STYLES" :key="s.value" :value="s.value">{{ s.label }}</option>
+          </select>
+        </label>
+        <div class="grid grid-cols-3 gap-2">
+          <label class="form-control">
+            <div class="label py-0.5"><span class="label-text text-xs">age</span></div>
+            <input class="input input-sm input-bordered" type="number" min="13" max="99" placeholder="—" v-model.number="editableProfile.age" />
+          </label>
+          <label class="form-control">
+            <div class="label py-0.5"><span class="label-text text-xs">height cm</span></div>
+            <input class="input input-sm input-bordered" type="number" min="100" max="250" placeholder="—" v-model.number="editableProfile.heightCm" />
+          </label>
+          <label class="form-control">
+            <div class="label py-0.5"><span class="label-text text-xs">weight kg</span></div>
+            <input class="input input-sm input-bordered" type="number" min="30" max="300" placeholder="—" v-model.number="editableProfile.weightKg" />
+          </label>
+        </div>
+      </div>
       <div class="bg-base-100 rounded-lg px-3 py-2 flex justify-between items-center text-sm">
         <span class="text-base-content/50">adjusted half-life</span>
         <span class="font-mono font-bold">{{ previewHalfLifeH.toFixed(2) }} h</span>
@@ -339,6 +363,7 @@ import { useLogStore }      from '../stores/log.js'
 import { useProfileStore }  from '../stores/profile.js'
 import { useProductsStore, NRT_PRESETS } from '../stores/products.js'
 import { searchCatalog, CATALOG, CATEGORIES as CATALOG_CATEGORIES } from '../lib/catalog.js'
+import { PUFF_STYLES, estimatePuffs } from '../lib/puff-estimate.js'
 import { useSessionsStore } from '../stores/sessions.js'
 import { useProgressStore } from '../stores/progress.js'
 import { useSyncStore }     from '../stores/sync.js'
@@ -440,17 +465,31 @@ function addPreset(preset) {
 function addCatalogItem(item) {
   const id = `catalog-${item.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
   if (editableProducts.value.some(p => p.id === id)) return
+
+  let totalPuffs = item.cartridgeTotalPuffs ?? 0
+  let nicPerPuff = item.nicotineMg
+  const cartMg = item.cartridgeNicotineMg ?? 0
+
+  // Personalize puff estimate for e-cig products
+  if (item.useCartridgeCalc && totalPuffs > 0) {
+    totalPuffs = estimatePuffs(
+      { volumeMl: item.volumeMl, estPuffs: item.cartridgeTotalPuffs },
+      profileStore.profile
+    )
+    if (cartMg > 0 && totalPuffs > 0) nicPerPuff = cartMg / totalPuffs
+  }
+
   editableProducts.value.push({
     id,
     name: item.name,
     emoji: item.emoji,
-    nicotineMg: item.nicotineMg,
+    nicotineMg: nicPerPuff,
     releaseType: item.releaseType,
     releaseDurationH: item.releaseDurationH ?? 0,
     hasPuffCount: item.hasPuffCount ?? false,
     useCartridgeCalc: item.useCartridgeCalc ?? false,
-    cartridgeNicotineMg: item.cartridgeNicotineMg ?? 0,
-    cartridgeTotalPuffs: item.cartridgeTotalPuffs ?? 0,
+    cartridgeNicotineMg: cartMg,
+    cartridgeTotalPuffs: totalPuffs,
     hasSession: item.hasSession ?? false,
     hasSwallowOption: item.hasSwallowOption ?? false,
     hasReuseOption: item.hasReuseOption ?? false,
