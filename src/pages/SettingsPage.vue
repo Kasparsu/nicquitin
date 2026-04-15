@@ -175,6 +175,44 @@
       <button class="btn btn-primary btn-sm w-full" @click="saveProducts">save products</button>
     </template>
 
+    <!-- Progress tab -->
+    <template v-if="activeTab === 'progress'">
+      <div class="bg-base-200 rounded-xl px-4 py-3 space-y-3">
+        <div class="text-xs font-semibold text-base-content/50 uppercase tracking-wide">edit progress</div>
+        <div class="grid grid-cols-2 gap-2">
+          <label class="form-control">
+            <div class="label py-0.5"><span class="label-text text-xs">total beats</span></div>
+            <input class="input input-sm input-bordered font-mono" type="number" min="0" v-model.number="editProgress.totalBeats" />
+          </label>
+          <label class="form-control">
+            <div class="label py-0.5"><span class="label-text text-xs">total attempts</span></div>
+            <input class="input input-sm input-bordered font-mono" type="number" min="0" v-model.number="editProgress.totalAttempts" />
+          </label>
+          <label class="form-control">
+            <div class="label py-0.5"><span class="label-text text-xs">current streak</span></div>
+            <input class="input input-sm input-bordered font-mono" type="number" min="0" v-model.number="editProgress.currentStreak" />
+          </label>
+          <label class="form-control">
+            <div class="label py-0.5"><span class="label-text text-xs">best streak</span></div>
+            <input class="input input-sm input-bordered font-mono" type="number" min="0" v-model.number="editProgress.bestStreak" />
+          </label>
+          <label class="form-control">
+            <div class="label py-0.5"><span class="label-text text-xs">multiplier</span></div>
+            <input class="input input-sm input-bordered font-mono" type="number" min="0.1" step="0.01" v-model.number="editProgress.multiplier" />
+          </label>
+          <label class="form-control">
+            <div class="label py-0.5"><span class="label-text text-xs">best interval (hours)</span></div>
+            <input class="input input-sm input-bordered font-mono" type="number" min="0" step="0.1" v-model.number="editProgress.bestIntervalH" />
+          </label>
+        </div>
+        <div class="bg-base-100 rounded-lg px-3 py-2 text-sm flex justify-between items-center">
+          <span class="text-base-content/50">level</span>
+          <span class="font-mono font-bold">{{ editProgress.totalBeats + 1 }}</span>
+        </div>
+        <button class="btn btn-primary btn-sm w-full" @click="saveProgress">save progress</button>
+      </div>
+    </template>
+
     <!-- Data tab -->
     <template v-if="activeTab === 'data'">
       <div class="space-y-3">
@@ -282,6 +320,7 @@ const { log } = storeToRefs(logStore)
 const tabs = [
   { id: 'profile',  label: 'Profile' },
   { id: 'products', label: 'Products' },
+  { id: 'progress', label: 'Progress' },
   { id: 'data',     label: 'Data' },
 ]
 const activeTab = ref('profile')
@@ -291,10 +330,19 @@ const editableProfile  = ref({})
 const expandedProduct  = ref(null)
 const importStatus     = ref(null)
 const importError      = ref('')
+const editProgress     = ref({})
 
 onMounted(() => {
   editableProducts.value = products.value.map(p => ({ ...p }))
   editableProfile.value  = { ...profile.value }
+  editProgress.value = {
+    totalBeats:     progressState.value.totalBeats ?? 0,
+    totalAttempts:  progressState.value.totalAttempts ?? 0,
+    currentStreak:  progressState.value.currentStreak ?? 0,
+    bestStreak:     progressState.value.bestStreak ?? 0,
+    multiplier:     progressState.value.multiplier ?? 1,
+    bestIntervalH:  (progressState.value.bestIntervalMs ?? 0) / 3_600_000,
+  }
 })
 
 const previewHalfLifeH = computed(() => calcHalfLife(editableProfile.value))
@@ -311,6 +359,18 @@ function saveProfile() {
 
 function saveProducts() {
   productsStore.saveProducts(editableProducts.value)
+}
+
+function saveProgress() {
+  progressStore.importProgress({
+    ...progressState.value,
+    totalBeats:     editProgress.value.totalBeats,
+    totalAttempts:  editProgress.value.totalAttempts,
+    currentStreak:  editProgress.value.currentStreak,
+    bestStreak:     editProgress.value.bestStreak,
+    multiplier:     editProgress.value.multiplier,
+    bestIntervalMs: editProgress.value.bestIntervalH * 3_600_000,
+  })
 }
 
 function toggleExpanded(id) { expandedProduct.value = expandedProduct.value === id ? null : id }

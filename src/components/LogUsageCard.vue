@@ -1,7 +1,16 @@
 <template>
   <div class="card bg-base-100 shadow">
     <div class="card-body gap-3">
-      <h2 class="card-title text-base">log usage</h2>
+      <div class="flex justify-between items-center">
+        <h2 class="card-title text-base">log usage</h2>
+        <label class="flex items-center gap-1.5 cursor-pointer">
+          <span class="text-[10px] text-base-content/40">backdate</span>
+          <input type="checkbox" class="toggle toggle-xs" v-model="backdating" />
+        </label>
+      </div>
+      <div v-if="backdating" class="bg-base-200 rounded-lg px-3 py-2">
+        <input type="datetime-local" class="input input-sm input-bordered w-full font-mono text-xs" v-model="backdateValue" />
+      </div>
       <div class="grid grid-cols-3 gap-2">
         <button
           v-for="p in products" :key="p.id"
@@ -145,12 +154,17 @@ function sessionsFor(productId) {
 const pendingProduct = ref(null)
 const puffCount      = ref(10)
 const refillConfirm  = ref(null)
+const backdating     = ref(false)
+const backdateValue  = ref('')
 
 // ─── Logging ─────────────────────────────────────────────────────────────────
 
 function selectProduct(p) {
   if (p.releaseType === 'slow') {
-    startSession(p.id)
+    const ts = backdating.value && backdateValue.value
+      ? new Date(backdateValue.value).getTime()
+      : undefined
+    startSession(p.id, ts)
     pendingProduct.value = null
     return
   }
@@ -173,7 +187,9 @@ function confirmLog() {
 }
 
 function doLog(p, puffs) {
-  const ts         = Date.now()
+  const ts         = backdating.value && backdateValue.value
+    ? new Date(backdateValue.value).getTime()
+    : Date.now()
   const nicotineMg = puffs != null ? puffs * p.nicotineMg : p.nicotineMg
   const isNRT      = p.isNRT ?? false
 

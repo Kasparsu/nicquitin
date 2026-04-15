@@ -42,7 +42,27 @@ export const useLogStore = defineStore('log', () => {
   }
 
   function addEntry(entry) {
-    log.value.unshift(entry)
+    // Insert in sorted position (newest first) to support backdated entries
+    const idx = log.value.findIndex(e => e.ts <= entry.ts)
+    if (idx === -1) log.value.push(entry)
+    else log.value.splice(idx, 0, entry)
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(log.value))
+  }
+
+  function updateEntry(id, fields) {
+    const i = log.value.findIndex(e => e.id === id)
+    if (i === -1) return
+    const updated = { ...log.value[i], ...fields }
+    // If timestamp changed, re-sort
+    if (fields.ts && fields.ts !== log.value[i].ts) {
+      updated.id = fields.ts
+      log.value.splice(i, 1)
+      const idx = log.value.findIndex(e => e.ts <= updated.ts)
+      if (idx === -1) log.value.push(updated)
+      else log.value.splice(idx, 0, updated)
+    } else {
+      log.value[i] = updated
+    }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(log.value))
   }
 
@@ -63,6 +83,6 @@ export const useLogStore = defineStore('log', () => {
 
   return {
     log, habitLog, lastUsed, lastHabitUsed, hasEnoughData, intervals, avgIntervalMs, usesPerDay7d, trend, peakHours,
-    load, addEntry, removeEntry, clearAll, importLog,
+    load, addEntry, updateEntry, removeEntry, clearAll, importLog,
   }
 })

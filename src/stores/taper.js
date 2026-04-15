@@ -1,6 +1,7 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import { useTimeStore } from './time.js'
+import { useLogStore } from './log.js'
 
 const STORAGE_KEY = 'nicquitin-taper'
 
@@ -129,6 +130,106 @@ export const useTaperStore = defineStore('taper', () => {
     }))
   })
 
+  // ─── Usage-based estimation ──────────────────────────────────────────────────
+
+  // Match a set of product IDs to the best-fitting rank in the delivery table.
+  function _matchProducts(productIds) {
+    const ids = new Set(productIds)
+    // Exact match first
+    for (const d of DELIVERY_TABLE) {
+      if (d.products.length === ids.size && d.products.every(p => ids.has(p))) return d
+    }
+    // Partial / closest: score by overlap
+    let best = null, bestScore = -1
+    for (const d of DELIVERY_TABLE) {
+      const overlap = d.products.filter(p => ids.has(p)).length
+      const extra   = [...ids].filter(p => !d.products.includes(p)).length
+      const score   = overlap - extra * 0.5
+      if (score > bestScore || (score === bestScore && best && d.products.length < best.products.length)) {
+        best = d; bestScore = score
+      }
+    }
+    return bestScore > 0 ? best : null
+  }
+
+  const usageEstimate = computed(() => {
+    const logStore = useLogStore()
+    const nrtEntries = logStore.log.filter(e => e.isNRT)
+    if (!nrtEntries.length) return null
+
+    // Group NRT entries by calendar day, collecting product IDs
+    const dayBuckets = {}
+    for (const e of nrtEntries) {
+      const day = new Date(e.ts).toDateString()
+      if (!dayBuckets[day]) dayBuckets[day] = { day, ts: e.ts, products: new Set() }
+      dayBuckets[day].products.add(e.productId)
+      // Keep most recent ts for sorting
+      if (e.ts > dayBuckets[day].ts) dayBuckets[day].ts = e.ts
+    }
+
+    // Sort days oldest-first so we can walk the timeline forward
+    const days = Object.values(dayBuckets).sort((a, b) => a.ts - b.ts)
+    if (!days.length) return null
+
+    // Match each day to a delivery rank
+    const matched = days.map(d => ({
+      ...d,
+      rank: _matchProducts(d.products),
+    }))
+
+    // Walk through days to detect phases.
+    // A "phase segment" is consecutive days at the same rank.
+    const segments = []
+    let current = null
+    for (const d of matched) {
+      const rankNum = d.rank?.rank ?? null
+      if (current && current.rankNum === rankNum) {
+        current.days++
+        current.lastTs = d.ts
+      } else {
+        current = { rankNum, rank: d.rank, days: 1, firstTs: d.ts, lastTs: d.ts }
+        segments.push(current)
+      }
+    }
+
+    // Current = last segment (most recent usage)
+    const latest = segments[segments.length - 1]
+    if (!latest?.rank) return null
+
+    // Map current rank to a plan phase
+    const planPhases = plan.value
+    let matchedPhase = planPhases.find(p => p.rank === latest.rankNum) ?? null
+    if (!matchedPhase) {
+      // Closest phase by hourly rate
+      let bestDiff = Infinity
+      for (const p of planPhases) {
+        const diff = Math.abs((p.hourlyRate ?? 0) - latest.rank.hourlyRate)
+        if (diff < bestDiff) { bestDiff = diff; matchedPhase = p }
+      }
+    }
+
+    // Build a history of phase transitions
+    const history = segments
+      .filter(s => s.rank)
+      .map(s => {
+        const phase = planPhases.find(p => p.rank === s.rankNum) ?? null
+        return {
+          rank: s.rank,
+          phase,
+          days: s.days,
+          from: new Date(s.firstTs).toLocaleDateString(),
+        }
+      })
+
+    return {
+      currentRank: latest.rank,
+      daysAtLevel: latest.days,
+      matchedPhase,
+      totalDaysLogged: days.length,
+      history,
+    }
+  })
+
   // ─── Actions ─────────────────────────────────────────────────────────────────
 
   function startPlan(customPhases) {
@@ -161,6 +262,14 @@ export const useTaperStore = defineStore('taper', () => {
     _persist()
   }
 
+  function adjustPhaseDay(delta) {
+    if (!state.value.phaseStartTs) return
+    state.value.phaseStartTs -= delta * 86_400_000
+    if (!state.value.planStartTs) return
+    state.value.planStartTs -= delta * 86_400_000
+    _persist()
+  }
+
   function setPhaseDays(phaseIndex, days) {
     state.value.phaseDays = { ...state.value.phaseDays, [phaseIndex]: days }
     _persist()
@@ -183,8 +292,8 @@ export const useTaperStore = defineStore('taper', () => {
   return {
     state, plan, currentPhaseData, totalDays,
     dayInPlan, dayInPhase, daysLeftInPhase, phaseProgress, overallProgress,
-    isComplete, estimatedEndTs, shoppingList,
-    startPlan, advancePhase, setPhase, setPhaseDays, stopPlan,
+    isComplete, estimatedEndTs, shoppingList, usageEstimate,
+    startPlan, advancePhase, setPhase, setPhaseDays, adjustPhaseDay, stopPlan,
     load,
   }
 })

@@ -12,6 +12,41 @@
         <button class="btn btn-primary btn-sm w-full" @click="startDefault">Start default plan</button>
       </div>
 
+      <!-- Usage estimate (before starting) -->
+      <div v-if="usageEstimate" class="bg-info/10 border border-info/30 rounded-xl px-4 py-3 space-y-2">
+        <div class="text-xs font-semibold text-info uppercase tracking-wide">estimated from your NRT logs</div>
+        <div class="flex justify-between items-end">
+          <div>
+            <div class="text-sm">current: <span class="font-bold">{{ usageEstimate.currentRank.combo }}</span></div>
+            <div class="text-xs text-base-content/50 mt-0.5">
+              {{ usageEstimate.currentRank.hourlyRate }} mg/h
+              · {{ usageEstimate.daysAtLevel }} day{{ usageEstimate.daysAtLevel !== 1 ? 's' : '' }} at this level
+              · {{ usageEstimate.totalDaysLogged }} days logged
+            </div>
+          </div>
+          <div class="text-right">
+            <div class="text-lg font-mono font-bold text-info">Rank {{ usageEstimate.currentRank.rank }}</div>
+          </div>
+        </div>
+        <div v-if="usageEstimate.matchedPhase" class="text-xs text-base-content/50">
+          Matches <span class="font-semibold">Phase {{ usageEstimate.matchedPhase.phase }} — {{ usageEstimate.matchedPhase.label }}</span>.
+          You could start the plan from there.
+        </div>
+        <button v-if="usageEstimate.matchedPhase" class="btn btn-info btn-outline btn-xs w-full" @click="startFromEstimate">
+          start from phase {{ usageEstimate.matchedPhase.phase }}
+        </button>
+        <!-- Usage history -->
+        <div v-if="usageEstimate.history.length > 1" class="pt-1 space-y-1">
+          <div class="text-xs font-semibold text-base-content/50 uppercase tracking-wide">detected progression</div>
+          <div v-for="(seg, i) in usageEstimate.history" :key="i" class="flex items-center gap-2 text-xs">
+            <span class="w-4 text-center shrink-0">{{ i === usageEstimate.history.length - 1 ? '▶' : '✓' }}</span>
+            <span class="flex-1">{{ seg.rank.combo }}</span>
+            <span class="text-base-content/40">{{ seg.days }}d</span>
+            <span class="text-base-content/30">{{ seg.from }}</span>
+          </div>
+        </div>
+      </div>
+
       <!-- Preview all ranks -->
       <div class="bg-base-200 rounded-xl px-4 py-3 space-y-2">
         <div class="text-xs font-semibold text-base-content/50 uppercase tracking-wide">all delivery options (sorted)</div>
@@ -67,8 +102,12 @@
           </div>
         </div>
         <progress class="progress progress-primary w-full h-2" :value="phaseProgress" max="1"></progress>
-        <div class="flex justify-between text-xs">
-          <span class="text-base-content/50">day {{ dayInPhase }} of {{ currentPhaseData.days }}</span>
+        <div class="flex justify-between items-center text-xs">
+          <div class="flex items-center gap-1.5">
+            <button class="btn btn-ghost btn-xs px-1 min-h-0 h-5" @click="adjustDay(-1)" :disabled="dayInPhase <= 1">-</button>
+            <span class="text-base-content/50">day {{ dayInPhase }} of {{ currentPhaseData.days }}</span>
+            <button class="btn btn-ghost btn-xs px-1 min-h-0 h-5" @click="adjustDay(1)">+</button>
+          </div>
           <span v-if="daysLeftInPhase > 0" class="text-base-content/50">{{ daysLeftInPhase }} days to go</span>
           <span v-else class="text-success font-semibold">ready to advance</span>
         </div>
@@ -84,21 +123,59 @@
         </button>
       </div>
 
+      <!-- Usage estimate vs plan -->
+      <div v-if="usageEstimate" class="bg-base-200 rounded-xl px-4 py-3 space-y-2">
+        <div class="text-xs font-semibold text-base-content/50 uppercase tracking-wide">actual usage</div>
+        <div class="flex justify-between items-center text-sm">
+          <span>{{ usageEstimate.currentRank.combo }}</span>
+          <span class="font-mono">{{ usageEstimate.currentRank.hourlyRate }} mg/h</span>
+        </div>
+        <div class="flex justify-between items-center text-xs text-base-content/40">
+          <span>{{ usageEstimate.daysAtLevel }}d at this level</span>
+          <span v-if="currentPhaseData && usageEstimate.currentRank.rank === currentPhaseData.rank" class="text-success font-semibold">on track</span>
+          <span v-else-if="currentPhaseData && usageEstimate.currentRank.rank < currentPhaseData.rank" class="text-warning font-semibold">above plan</span>
+          <span v-else-if="currentPhaseData" class="text-info font-semibold">ahead of plan</span>
+        </div>
+        <!-- Sync plan to actual usage -->
+        <button
+          v-if="usageEstimate.matchedPhase && currentPhaseData && usageEstimate.matchedPhase.index !== state.currentPhase"
+          class="btn btn-outline btn-xs w-full"
+          @click="setPhase(usageEstimate.matchedPhase.index)"
+        >
+          sync plan to phase {{ usageEstimate.matchedPhase.phase }}
+        </button>
+        <!-- Detected progression -->
+        <div v-if="usageEstimate.history.length > 1" class="pt-1 space-y-1">
+          <div class="text-xs font-semibold text-base-content/50 uppercase tracking-wide">your progression</div>
+          <div v-for="(seg, i) in usageEstimate.history" :key="i" class="flex items-center gap-2 text-xs">
+            <span class="w-4 text-center shrink-0">{{ i === usageEstimate.history.length - 1 ? '▶' : '✓' }}</span>
+            <span class="flex-1">
+              {{ seg.rank.combo }}
+              <span v-if="seg.phase" class="text-base-content/40 ml-1">P{{ seg.phase.phase }}</span>
+            </span>
+            <span class="text-base-content/40">{{ seg.days }}d</span>
+            <span class="text-base-content/30">{{ seg.from }}</span>
+          </div>
+        </div>
+      </div>
+
       <!-- Phase timeline -->
       <div class="bg-base-200 rounded-xl px-4 py-3 space-y-1">
-        <div class="text-xs font-semibold text-base-content/50 uppercase tracking-wide mb-2">phases</div>
+        <div class="flex justify-between items-center mb-2">
+          <div class="text-xs font-semibold text-base-content/50 uppercase tracking-wide">phases</div>
+          <div class="text-xs text-base-content/40">{{ totalDays }} days total</div>
+        </div>
         <div
           v-for="(p, i) in plan" :key="i"
-          class="flex items-center gap-3 py-1.5 text-sm cursor-pointer rounded-lg px-2 -mx-2 transition-colors"
+          class="flex items-center gap-3 py-1.5 text-sm rounded-lg px-2 -mx-2 transition-colors"
           :class="i === state.currentPhase ? 'bg-primary/10' : i < state.currentPhase ? 'opacity-50' : ''"
-          @click="setPhase(i)"
         >
-          <span class="w-5 text-center shrink-0">
+          <span class="w-5 text-center shrink-0 cursor-pointer" @click="setPhase(i)">
             <template v-if="i < state.currentPhase">&#x2705;</template>
             <template v-else-if="i === state.currentPhase">&#x25B6;&#xFE0F;</template>
             <template v-else>&#x26AA;</template>
           </span>
-          <span class="flex-1 text-xs">
+          <span class="flex-1 text-xs cursor-pointer" @click="setPhase(i)">
             <span class="font-semibold">{{ p.label }}</span>
             <span class="text-base-content/40 ml-1">{{ p.combo }}</span>
           </span>
@@ -144,15 +221,25 @@ const taperStore = useTaperStore()
 const {
   state, plan, currentPhaseData, totalDays,
   dayInPlan, dayInPhase, daysLeftInPhase, phaseProgress, overallProgress,
-  isComplete, estimatedEndTs, shoppingList,
+  isComplete, estimatedEndTs, shoppingList, usageEstimate,
 } = storeToRefs(taperStore)
 
-const { startPlan, advancePhase, setPhase, stopPlan } = taperStore
+const { startPlan, advancePhase, setPhase, adjustPhaseDay, stopPlan } = taperStore
+
+function adjustDay(delta) {
+  adjustPhaseDay(delta)
+}
 
 const taperState = state
 
 function startDefault() {
   startPlan(null)
+}
+
+function startFromEstimate() {
+  if (!usageEstimate.value?.matchedPhase) return
+  startPlan(null)
+  setPhase(usageEstimate.value.matchedPhase.index)
 }
 
 function confirmStop() {

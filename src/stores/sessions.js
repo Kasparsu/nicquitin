@@ -44,11 +44,11 @@ export const useSessionsStore = defineStore('sessions', () => {
   const activeSessions = computed(() => sessions.value)
   const pouchSessions  = computed(() => sessions.value.filter(s => s.productId === 'pouch'))
 
-  function startSession(productId) {
-    const nowMs = Date.now()
+  function startSession(productId, startTs) {
+    const ts = startTs ?? Date.now()
     sessions.value = [...sessions.value, {
-      id: nowMs, productId, startTs: nowMs, reuseCount: 0,
-      activeMs: 0, paused: false, lastResumeTs: nowMs,
+      id: ts, productId, startTs: ts, reuseCount: 0,
+      activeMs: 0, paused: false, lastResumeTs: ts,
     }]
     _persist()
   }
