@@ -30,6 +30,18 @@ function btn(wrapper, text) {
   return wrapper.findAll('button').find(b => b.text().includes(text))
 }
 
+// Click a habit product and skip the suggestion intercept
+async function clickHabitProduct(wrapper, name) {
+  await btn(wrapper, name)?.trigger('click')
+  await flushPromises()
+  // Suggestion intercept shows for non-NRT products; skip it
+  const logAnyway = btn(wrapper, 'use anyway')
+  if (logAnyway) {
+    await logAnyway.trigger('click')
+    await flushPromises()
+  }
+}
+
 // Products used for session tests (patch/gum removed from defaults, now NRT presets)
 const SESSION_TEST_PRODUCTS = [
   { id: 'cigarette', name: 'Cigarette', emoji: '🚬', nicotineMg: 1.1, releaseType: 'instant', releaseDurationH: 0, hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0, cartridgeTotalPuffs: 0, hasSession: false, hasSwallowOption: false, hasReuseOption: false, producesCO: true, isNRT: false },
@@ -72,7 +84,7 @@ describe('initial render', () => {
 describe('logging instant products (cigarette)', () => {
   it('adds an entry to the log on click', async () => {
     const wrapper = await mountApp({}, '/log')
-    await btn(wrapper, 'Cigarette')?.trigger('click')
+    await clickHabitProduct(wrapper, 'Cigarette')
     const stored = JSON.parse(localStorage.getItem('nicquitin-log') ?? '[]')
     expect(stored).toHaveLength(1)
     expect(stored[0].product).toBe('Cigarette')
@@ -80,15 +92,14 @@ describe('logging instant products (cigarette)', () => {
 
   it('shows a positive nicotine level after logging', async () => {
     const wrapper = await mountApp({}, '/log')
-    await btn(wrapper, 'Cigarette')?.trigger('click')
-    await flushPromises()
+    await clickHabitProduct(wrapper, 'Cigarette')
     const stored = JSON.parse(localStorage.getItem('nicquitin-log') ?? '[]')
     expect(stored.length).toBeGreaterThan(0)
   })
 
   it('persists the log to localStorage', async () => {
     const wrapper = await mountApp({}, '/log')
-    await btn(wrapper, 'Cigarette')?.trigger('click')
+    await clickHabitProduct(wrapper, 'Cigarette')
     expect(localStorage.getItem('nicquitin-log')).not.toBeNull()
   })
 })
@@ -98,23 +109,23 @@ describe('logging instant products (cigarette)', () => {
 describe('vape puff flow', () => {
   it('opens the puff count panel on click', async () => {
     const wrapper = await mountApp({}, '/log')
-    await btn(wrapper, 'Vape')?.trigger('click')
-    await flushPromises()
+    await clickHabitProduct(wrapper, 'Vape')
     expect(wrapper.text()).toMatch(/puffs/)
   })
 
   it('closes the panel when the same button is clicked again', async () => {
     const wrapper = await mountApp({}, '/log')
-    await btn(wrapper, 'Vape')?.trigger('click')
+    await clickHabitProduct(wrapper, 'Vape')
+    // Second click on Vape toggles the puff panel closed (no suggestion — panel already open)
     await btn(wrapper, 'Vape')?.trigger('click')
     await flushPromises()
-    expect(btn(wrapper, 'log')).toBeUndefined()
+    const puffLogBtn = wrapper.findAll('button').find(b => b.text().match(/^log \d+ puffs$/))
+    expect(puffLogBtn).toBeUndefined()
   })
 
   it('logs the entry after confirming puff count', async () => {
     const wrapper = await mountApp({}, '/log')
-    await btn(wrapper, 'Vape')?.trigger('click')
-    await flushPromises()
+    await clickHabitProduct(wrapper, 'Vape')
     const logBtn = btn(wrapper, 'log')
     await logBtn?.trigger('click')
     const stored = JSON.parse(localStorage.getItem('nicquitin-log') ?? '[]')
@@ -205,26 +216,22 @@ describe('gum session — spit vs swallow', () => {
 describe('pouch sessions', () => {
   it('shows pause and done buttons after starting a pouch', async () => {
     const wrapper = await mountApp({}, '/log')
-    await btn(wrapper, 'Pouch')?.trigger('click')
-    await flushPromises()
+    await clickHabitProduct(wrapper, 'Pouch')
     expect(wrapper.text()).toContain('put in tin')
     expect(wrapper.text()).toContain('done')
   })
 
   it('allows multiple active pouches', async () => {
     const wrapper = await mountApp({}, '/log')
-    await btn(wrapper, 'Pouch')?.trigger('click')
-    await flushPromises()
-    await btn(wrapper, 'Pouch')?.trigger('click')
-    await flushPromises()
+    await clickHabitProduct(wrapper, 'Pouch')
+    await clickHabitProduct(wrapper, 'Pouch')
     const stored = JSON.parse(localStorage.getItem('nicquitin-sessions-v2') ?? '[]')
     expect(stored).toHaveLength(2)
   })
 
   it('pauses a pouch (put in tin) and shows resume button', async () => {
     const wrapper = await mountApp({}, '/log')
-    await btn(wrapper, 'Pouch')?.trigger('click')
-    await flushPromises()
+    await clickHabitProduct(wrapper, 'Pouch')
     await btn(wrapper, 'put in tin')?.trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('put back in')
@@ -234,8 +241,7 @@ describe('pouch sessions', () => {
 
   it('resuming increments reuseCount', async () => {
     const wrapper = await mountApp({}, '/log')
-    await btn(wrapper, 'Pouch')?.trigger('click')
-    await flushPromises()
+    await clickHabitProduct(wrapper, 'Pouch')
     await btn(wrapper, 'put in tin')?.trigger('click')
     await flushPromises()
     await btn(wrapper, 'put back in')?.trigger('click')
@@ -247,8 +253,7 @@ describe('pouch sessions', () => {
 
   it('logs entry and removes session when done', async () => {
     const wrapper = await mountApp({}, '/log')
-    await btn(wrapper, 'Pouch')?.trigger('click')
-    await flushPromises()
+    await clickHabitProduct(wrapper, 'Pouch')
     await btn(wrapper, 'done')?.trigger('click')
     await flushPromises()
     const sessions = JSON.parse(localStorage.getItem('nicquitin-sessions-v2') ?? '[]')

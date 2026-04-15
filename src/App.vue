@@ -42,7 +42,8 @@ import { useSessionsStore } from './stores/sessions.js'
 import { useProgressStore } from './stores/progress.js'
 import { useNicotineStore } from './stores/nicotine.js'
 import { useSyncStore }     from './stores/sync.js'
-import { useTaperStore }   from './stores/taper.js'
+import { useTaperStore }      from './stores/taper.js'
+import { useChallengesStore } from './stores/challenges.js'
 
 const navTabs = [
   { to: '/',         name: 'home',     icon: '🏠', label: 'Home' },
@@ -60,7 +61,8 @@ const productsStore = useProductsStore()
 const progressStore = useProgressStore()
 const sessionsStore = useSessionsStore()
 const syncStore     = useSyncStore()
-const taperStore    = useTaperStore()
+const taperStore      = useTaperStore()
+const challengesStore = useChallengesStore()
 useNicotineStore()
 
 onMounted(() => {
@@ -72,6 +74,7 @@ onMounted(() => {
   sessionsStore.load()
   syncStore.load()
   taperStore.load()
+  challengesStore.load()
 })
 
 onUnmounted(() => timeStore.stop())

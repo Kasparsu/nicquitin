@@ -42,6 +42,39 @@
         </button>
       </div>
 
+      <!-- Suggestion intercept -->
+      <div v-if="suggestion" class="rounded-xl p-4 space-y-3"
+        :class="interceptedProduct?.isNRT ? 'bg-info/10 border border-info/30' : 'bg-warning/10 border border-warning/30'">
+        <div class="flex items-start gap-3">
+          <span class="text-3xl">{{ suggestion.category.emoji }}</span>
+          <div class="flex-1">
+            <div class="text-xs font-semibold uppercase tracking-wide"
+              :class="interceptedProduct?.isNRT ? 'text-info' : 'text-warning'">
+              {{ interceptedProduct?.isNRT ? 'try delaying this dose' : 'try this instead' }} #{{ suggestion.id }}
+            </div>
+            <div class="text-sm font-medium mt-1">{{ suggestion.text }}</div>
+            <div class="text-xs text-base-content/40 mt-0.5">{{ suggestion.category.name }}</div>
+          </div>
+        </div>
+        <div class="flex gap-2">
+          <button class="btn btn-sm flex-1" :class="interceptedProduct?.isNRT ? 'btn-info' : 'btn-warning'" @click="acceptSuggestion">
+            {{ interceptedProduct?.isNRT ? 'skipped dose!' : 'I did it!' }}
+          </button>
+          <button class="btn btn-ghost btn-sm flex-1" @click="skipSuggestion">use anyway</button>
+        </div>
+        <div v-if="challengesStore.totalCompleted > 0" class="flex justify-between text-xs text-base-content/40 pt-1">
+          <span>{{ challengesStore.totalCompleted }} challenges done</span>
+          <span v-if="challengesStore.todayCount">{{ challengesStore.todayCount }} today</span>
+          <span v-if="challengesStore.streak >= 2">{{ challengesStore.streak }}d streak</span>
+        </div>
+      </div>
+
+      <!-- Predicted next usage -->
+      <div v-if="predictedNext && !suggestion && !pendingProduct" class="bg-base-200 rounded-lg px-3 py-2 flex justify-between items-center text-xs">
+        <span class="text-base-content/50">predicted next craving</span>
+        <span class="font-mono">~{{ predictedNext }}</span>
+      </div>
+
       <!-- Puff count + cartridge panel -->
       <div v-if="pendingProduct?.hasPuffCount" class="bg-base-200 rounded-xl p-4 space-y-3">
 
@@ -126,19 +159,26 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { storeToRefs } from 'pinia'
+import { formatDuration } from '../lib/format.js'
+import { pickSuggestion } from '../lib/suggestions.js'
+import { requestPermission, scheduleNextUsageNotification } from '../lib/notifications.js'
 import { useLogStore }      from '../stores/log.js'
 import { useProductsStore } from '../stores/products.js'
 import { useSessionsStore } from '../stores/sessions.js'
-import { useProgressStore } from '../stores/progress.js'
+import { useProgressStore }  from '../stores/progress.js'
+import { useTimeStore }      from '../stores/time.js'
+import { useChallengesStore } from '../stores/challenges.js'
 
-const logStore      = useLogStore()
-const productsStore = useProductsStore()
-const sessionsStore = useSessionsStore()
-const progressStore = useProgressStore()
+const logStore        = useLogStore()
+const productsStore   = useProductsStore()
+const sessionsStore   = useSessionsStore()
+const progressStore   = useProgressStore()
+const timeStore       = useTimeStore()
+const challengesStore = useChallengesStore()
 
-const { log, hasEnoughData } = storeToRefs(logStore)
+const { log, hasEnoughData, avgIntervalMs, lastHabitUsed } = storeToRefs(logStore)
 const { products, cartridgeSessions } = storeToRefs(productsStore)
 const { activeSessions } = storeToRefs(sessionsStore)
 
@@ -149,6 +189,26 @@ function sessionsFor(productId) {
   return activeSessions.value.filter(s => s.productId === productId)
 }
 
+// ─── Predicted next craving (uses both habit logs + challenges) ──────────────
+
+const { predictedNextCravingTs, resistRate } = storeToRefs(challengesStore)
+
+const predictedNext = computed(() => {
+  if (!predictedNextCravingTs.value) return null
+  const diff = predictedNextCravingTs.value - timeStore.now
+  if (diff <= 0) return 'now'
+  return formatDuration(diff)
+})
+
+// Schedule notification 5 min before predicted craving
+watch(predictedNextCravingTs, (ts) => {
+  if (ts && ts > Date.now()) {
+    requestPermission().then(perm => {
+      if (perm === 'granted') scheduleNextUsageNotification(ts)
+    })
+  }
+}, { immediate: true })
+
 // ─── UI state ─────────────────────────────────────────────────────────────────
 
 const pendingProduct = ref(null)
@@ -156,10 +216,53 @@ const puffCount      = ref(10)
 const refillConfirm  = ref(null)
 const backdating     = ref(false)
 const backdateValue  = ref('')
+const suggestion     = ref(null)
+const interceptedProduct = ref(null)
+
+// ─── Suggestion intercept ────────────────────────────────────────────────────
+
+function showSuggestion(p) {
+  suggestion.value = pickSuggestion()
+  interceptedProduct.value = p
+}
+
+function acceptSuggestion() {
+  if (suggestion.value) {
+    challengesStore.complete(suggestion.value, interceptedProduct.value?.isNRT ?? false)
+  }
+  suggestion.value = null
+  interceptedProduct.value = null
+}
+
+function skipSuggestion() {
+  const p = interceptedProduct.value
+  suggestion.value = null
+  interceptedProduct.value = null
+  if (!p) return
+  proceedWithProduct(p)
+}
 
 // ─── Logging ─────────────────────────────────────────────────────────────────
 
+// Short-form NRT: gum, lozenge, spray — anything NRT with release under 2 hours
+function isShortFormNRT(p) {
+  return p.isNRT && (p.releaseDurationH || 0) < 2
+}
+
 function selectProduct(p) {
+  // Show suggestion for habit products and short-form NRT (not patches, not backdated, not mid-panel)
+  const shouldIntercept = (!p.isNRT || isShortFormNRT(p)) && !backdating.value && !suggestion.value && !pendingProduct.value
+  if (shouldIntercept) {
+    showSuggestion(p)
+    return
+  }
+
+  suggestion.value = null
+  interceptedProduct.value = null
+  proceedWithProduct(p)
+}
+
+function proceedWithProduct(p) {
   if (p.releaseType === 'slow') {
     const ts = backdating.value && backdateValue.value
       ? new Date(backdateValue.value).getTime()
