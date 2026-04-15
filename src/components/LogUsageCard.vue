@@ -173,16 +173,19 @@ function confirmLog() {
 }
 
 function doLog(p, puffs) {
-  const prevEntry  = log.value[0]
   const ts         = Date.now()
   const nicotineMg = puffs != null ? puffs * p.nicotineMg : p.nicotineMg
+  const isNRT      = p.isNRT ?? false
 
-  logStore.addEntry({ id: ts, productId: p.id, product: p.name, emoji: p.emoji, nicotineMg, releaseType: p.releaseType, releaseDurationH: p.releaseDurationH, puffs, ts, producesCO: p.producesCO ?? false })
+  logStore.addEntry({ id: ts, productId: p.id, product: p.name, emoji: p.emoji, nicotineMg, releaseType: p.releaseType, releaseDurationH: p.releaseDurationH, puffs, ts, producesCO: p.producesCO ?? false, isNRT })
 
-  if (prevEntry && hasEnoughData.value) {
-    const prevEnd  = prevEntry.stoppedTs || prevEntry.ts
-    const interval = ts - prevEnd
-    if (interval >= 5 * 60_000) progressStore.checkBeat(interval)
+  if (!isNRT) {
+    const prevHabit = logStore.habitLog.find((e, i) => i > 0 || e.ts !== ts) ?? logStore.habitLog[1]
+    if (prevHabit && hasEnoughData.value) {
+      const prevEnd  = prevHabit.stoppedTs || prevHabit.ts
+      const interval = ts - prevEnd
+      if (interval >= 5 * 60_000) progressStore.checkBeat(interval)
+    }
   }
 }
 

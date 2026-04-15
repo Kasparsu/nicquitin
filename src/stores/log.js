@@ -11,11 +11,13 @@ export const useLogStore = defineStore('log', () => {
 
   const log = ref([])
 
+  const habitLog      = computed(() => log.value.filter(e => !e.isNRT))
   const lastUsed      = computed(() => log.value[0] ?? null)
-  const hasEnoughData = computed(() => log.value.length >= MIN_ENTRIES_FOR_PATTERNS)
-  const intervals     = computed(() => computeIntervals(log.value))
+  const lastHabitUsed = computed(() => habitLog.value[0] ?? null)
+  const hasEnoughData = computed(() => habitLog.value.length >= MIN_ENTRIES_FOR_PATTERNS)
+  const intervals     = computed(() => computeIntervals(habitLog.value))
   const avgIntervalMs = computed(() => computeAvgInterval(intervals.value))
-  const usesPerDay7d  = computed(() => computeUsesPerDay7d(log.value, time.now))
+  const usesPerDay7d  = computed(() => computeUsesPerDay7d(habitLog.value, time.now))
   const trend         = computed(() => computeTrend(intervals.value))
 
   const peakHours = computed(() => {
@@ -60,7 +62,7 @@ export const useLogStore = defineStore('log', () => {
   }
 
   return {
-    log, lastUsed, hasEnoughData, intervals, avgIntervalMs, usesPerDay7d, trend, peakHours,
+    log, habitLog, lastUsed, lastHabitUsed, hasEnoughData, intervals, avgIntervalMs, usesPerDay7d, trend, peakHours,
     load, addEntry, removeEntry, clearAll, importLog,
   }
 })

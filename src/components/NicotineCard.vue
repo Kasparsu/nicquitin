@@ -23,7 +23,7 @@
         </div>
       </div>
       <div class="divider text-xs my-0">recovery milestones</div>
-      <div v-if="lastUsed" class="space-y-2">
+      <div v-if="lastHabitUsed" class="space-y-2">
         <div v-for="m in milestones" :key="m.label" class="flex items-center gap-2 text-sm">
           <span class="shrink-0 w-5 text-center">{{ m.achieved ? '✅' : '🔘' }}</span>
           <span class="flex-1 leading-tight" :class="m.achieved ? 'text-success' : 'text-base-content/70'">{{ m.label }}</span>
@@ -54,7 +54,8 @@ const MILESTONE_DEFS = [
 ]
 
 const time    = useTimeStore()
-const { log, lastUsed }          = storeToRefs(useLogStore())
+const logStore = useLogStore()
+const { log, lastUsed, lastHabitUsed } = storeToRefs(logStore)
 const { halfLifeH }              = storeToRefs(useProfileStore())
 const { nicotineLevel, gaugeColor, timeUntilClean } = storeToRefs(useNicotineStore())
 
@@ -64,8 +65,8 @@ const lastCombustibleUsed = computed(() =>
 )
 
 const milestones = computed(() => {
-  if (!lastUsed.value) return []
-  const baseTs = lastUsed.value.stoppedTs || lastUsed.value.ts
+  if (!lastHabitUsed.value) return []
+  const baseTs = lastHabitUsed.value.stoppedTs || lastHabitUsed.value.ts
   return MILESTONE_DEFS
     .filter(m => !m.requiresCombustion || lastCombustibleUsed.value !== null)
     .map(m => {

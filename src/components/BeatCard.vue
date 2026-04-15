@@ -33,16 +33,16 @@
       <!-- Big timer -->
       <div class="text-center">
         <p class="text-base-content/50 text-sm">time since last use</p>
-        <div v-if="lastUsed" class="text-5xl font-mono font-bold tabular-nums my-1" :class="beatTimerColor">{{ elapsed }}</div>
+        <div v-if="lastHabitUsed" class="text-5xl font-mono font-bold tabular-nums my-1" :class="beatTimerColor">{{ elapsed }}</div>
         <div v-else class="text-base-content/30 text-sm py-4">no usage logged yet</div>
-        <p v-if="lastUsed" class="text-base-content/40 text-xs">
-          {{ formatDateTime(lastUsed.stoppedTs || lastUsed.ts) }} &mdash; {{ lastUsed.emoji }} {{ lastUsed.product }}
-          <span v-if="lastUsed.puffs"> · {{ lastUsed.puffs }} puffs</span>
+        <p v-if="lastHabitUsed" class="text-base-content/40 text-xs">
+          {{ formatDateTime(lastHabitUsed.stoppedTs || lastHabitUsed.ts) }} &mdash; {{ lastHabitUsed.emoji }} {{ lastHabitUsed.product }}
+          <span v-if="lastHabitUsed.puffs"> · {{ lastHabitUsed.puffs }} puffs</span>
         </p>
       </div>
 
       <!-- Beat progress bar -->
-      <template v-if="lastUsed && hasEnoughData">
+      <template v-if="lastHabitUsed && hasEnoughData">
         <div>
           <div class="flex justify-between text-xs mb-1">
             <span class="text-base-content/50">target: wait {{ formatDuration(targetIntervalMs) }}</span>
@@ -60,7 +60,7 @@
           next use will level up to Lv.{{ level + 1 }} · new target: {{ formatDuration(targetIntervalMs * (1 + BEAT_STEP)) }}
         </p>
       </template>
-      <p v-else-if="lastUsed" class="text-xs text-base-content/30 text-center">
+      <p v-else-if="lastHabitUsed" class="text-xs text-base-content/30 text-center">
         log {{ Math.max(0, MIN_ENTRIES_FOR_PATTERNS - log.length) }} more uses to unlock beat targets
       </p>
 
@@ -77,14 +77,14 @@ import { useProgressStore, BEAT_STEP } from '../stores/progress.js'
 
 const MIN_ENTRIES_FOR_PATTERNS = 5
 
-const { log, lastUsed, hasEnoughData } = storeToRefs(useLogStore())
+const { log, lastHabitUsed, hasEnoughData } = storeToRefs(useLogStore())
 const {
   progressState, level, recentOutcomes, recentDifficulty,
   targetIntervalMs, timeSinceLastMs, beatProgress, hasBeatenTarget, timeToTarget, beatTimerColor,
 } = storeToRefs(useProgressStore())
 
 const elapsed = computed(() => {
-  if (!lastUsed.value) return null
+  if (!lastHabitUsed.value) return null
   const s   = Math.floor(timeSinceLastMs.value / 1000)
   const h   = Math.floor(s / 3600)
   const m   = Math.floor((s % 3600) / 60)

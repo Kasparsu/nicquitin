@@ -50,7 +50,7 @@ export const useProgressStore = defineStore('progress', () => {
   )
 
   const timeSinceLastMs = computed(() =>
-    logStore.lastUsed ? time.now - (logStore.lastUsed.stoppedTs || logStore.lastUsed.ts) : 0
+    logStore.lastHabitUsed ? time.now - (logStore.lastHabitUsed.stoppedTs || logStore.lastHabitUsed.ts) : 0
   )
 
   const beatProgress    = computed(() =>

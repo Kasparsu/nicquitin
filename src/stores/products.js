@@ -6,12 +6,12 @@ const PRODUCTS_KEY  = 'nicquitin-products'
 const CARTRIDGE_KEY = 'nicquitin-cartridges'
 
 export const DEFAULT_PRODUCTS = [
-  { id: 'cigarette', name: 'Cigarette',    emoji: '🚬', nicotineMg: 1.1,  releaseType: 'instant', releaseDurationH: 0,   hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0,  cartridgeTotalPuffs: 0,   hasSession: false, hasSwallowOption: false, hasReuseOption: false, producesCO: true  },
-  { id: 'vape',      name: 'Vape',         emoji: '💨', nicotineMg: 0.1,  releaseType: 'instant', releaseDurationH: 0,   hasPuffCount: true,  useCartridgeCalc: true,  cartridgeNicotineMg: 20, cartridgeTotalPuffs: 200, hasSession: false, hasSwallowOption: false, hasReuseOption: false, producesCO: false },
-  { id: 'patch',     name: 'Patch (21mg)', emoji: '🩹', nicotineMg: 14,   releaseType: 'slow',    releaseDurationH: 16,  hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0,  cartridgeTotalPuffs: 0,   hasSession: true,  hasSwallowOption: false, hasReuseOption: false, producesCO: false },
-  { id: 'gum',       name: 'Gum (4mg)',    emoji: '🟡', nicotineMg: 2,    releaseType: 'slow',    releaseDurationH: 0.5, hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0,  cartridgeTotalPuffs: 0,   hasSession: true,  hasSwallowOption: true,  hasReuseOption: false, producesCO: false },
-  { id: 'pouch',     name: 'Pouch',        emoji: '🫙', nicotineMg: 3,    releaseType: 'slow',    releaseDurationH: 1,   hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0,  cartridgeTotalPuffs: 0,   hasSession: true,  hasSwallowOption: false, hasReuseOption: true,  producesCO: false },
-  { id: 'cigar',     name: 'Cigar',        emoji: '🍬', nicotineMg: 3,    releaseType: 'instant', releaseDurationH: 0,   hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0,  cartridgeTotalPuffs: 0,   hasSession: false, hasSwallowOption: false, hasReuseOption: false, producesCO: true  },
+  { id: 'cigarette', name: 'Cigarette',    emoji: '🚬', nicotineMg: 1.1,  releaseType: 'instant', releaseDurationH: 0,   hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0,  cartridgeTotalPuffs: 0,   hasSession: false, hasSwallowOption: false, hasReuseOption: false, producesCO: true,  isNRT: false },
+  { id: 'vape',      name: 'Vape',         emoji: '💨', nicotineMg: 0.1,  releaseType: 'instant', releaseDurationH: 0,   hasPuffCount: true,  useCartridgeCalc: true,  cartridgeNicotineMg: 20, cartridgeTotalPuffs: 200, hasSession: false, hasSwallowOption: false, hasReuseOption: false, producesCO: false, isNRT: false },
+  { id: 'patch',     name: 'Patch (21mg)', emoji: '🩹', nicotineMg: 14,   releaseType: 'slow',    releaseDurationH: 16,  hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0,  cartridgeTotalPuffs: 0,   hasSession: true,  hasSwallowOption: false, hasReuseOption: false, producesCO: false, isNRT: true  },
+  { id: 'gum',       name: 'Gum (4mg)',    emoji: '🟡', nicotineMg: 2,    releaseType: 'slow',    releaseDurationH: 0.5, hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0,  cartridgeTotalPuffs: 0,   hasSession: true,  hasSwallowOption: true,  hasReuseOption: false, producesCO: false, isNRT: true  },
+  { id: 'pouch',     name: 'Pouch',        emoji: '🫙', nicotineMg: 3,    releaseType: 'slow',    releaseDurationH: 1,   hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0,  cartridgeTotalPuffs: 0,   hasSession: true,  hasSwallowOption: false, hasReuseOption: true,  producesCO: false, isNRT: false },
+  { id: 'cigar',     name: 'Cigar',        emoji: '🍬', nicotineMg: 3,    releaseType: 'instant', releaseDurationH: 0,   hasPuffCount: false, useCartridgeCalc: false, cartridgeNicotineMg: 0,  cartridgeTotalPuffs: 0,   hasSession: false, hasSwallowOption: false, hasReuseOption: false, producesCO: true,  isNRT: false },
 ]
 
 export const useProductsStore = defineStore('products', () => {
@@ -76,6 +76,7 @@ export const useProductsStore = defineStore('products', () => {
         return {
           producesCO: false, hasSession: false,
           hasSwallowOption: false, hasReuseOption: false,
+          isNRT: false,
           ...base,
         }
       })

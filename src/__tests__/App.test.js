@@ -1,14 +1,17 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+import { router } from '../router.js'
 import App from '../App.vue'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-async function mountApp(lsData = {}) {
+async function mountApp(lsData = {}, route = '/') {
   for (const [k, v] of Object.entries(lsData)) {
     localStorage.setItem(k, JSON.stringify(v))
   }
-  const wrapper = mount(App)
+  router.push(route)
+  await router.isReady()
+  const wrapper = mount(App, { global: { plugins: [router] } })
   await flushPromises()
   return wrapper
 }
@@ -50,7 +53,7 @@ describe('initial render', () => {
       releaseDurationH: 0, hasPuffCount: false, useCartridgeCalc: false,
       cartridgeNicotineMg: 0, cartridgeTotalPuffs: 0, hasSession: false,
       hasSwallowOption: false, hasReuseOption: false }]
-    const wrapper = await mountApp({ 'nicquitin-products': custom })
+    const wrapper = await mountApp({ 'nicquitin-products': custom }, '/log')
     expect(wrapper.text()).toContain('MyProd')
   })
 })
@@ -59,7 +62,7 @@ describe('initial render', () => {
 
 describe('logging instant products (cigarette)', () => {
   it('adds an entry to the log on click', async () => {
-    const wrapper = await mountApp()
+    const wrapper = await mountApp({}, '/log')
     await btn(wrapper, 'Cigarette')?.trigger('click')
     const stored = JSON.parse(localStorage.getItem('nicquitin-log') ?? '[]')
     expect(stored).toHaveLength(1)
@@ -67,25 +70,15 @@ describe('logging instant products (cigarette)', () => {
   })
 
   it('shows a positive nicotine level after logging', async () => {
-    const wrapper = await mountApp()
+    const wrapper = await mountApp({}, '/log')
     await btn(wrapper, 'Cigarette')?.trigger('click')
     await flushPromises()
-    // The level is very small immediately after logging (exponential decay from t=0 is 0)
-    // but a previously-logged entry at t-1s would show. Check the log has an entry.
     const stored = JSON.parse(localStorage.getItem('nicquitin-log') ?? '[]')
     expect(stored.length).toBeGreaterThan(0)
   })
 
-  it('shows the entry in the history list', async () => {
-    const wrapper = await mountApp()
-    await btn(wrapper, 'Cigarette')?.trigger('click')
-    await flushPromises()
-    expect(wrapper.text()).toContain('Cigarette')
-    expect(wrapper.find('ul').exists()).toBe(true)
-  })
-
   it('persists the log to localStorage', async () => {
-    const wrapper = await mountApp()
+    const wrapper = await mountApp({}, '/log')
     await btn(wrapper, 'Cigarette')?.trigger('click')
     expect(localStorage.getItem('nicquitin-log')).not.toBeNull()
   })
@@ -95,23 +88,22 @@ describe('logging instant products (cigarette)', () => {
 
 describe('vape puff flow', () => {
   it('opens the puff count panel on click', async () => {
-    const wrapper = await mountApp()
+    const wrapper = await mountApp({}, '/log')
     await btn(wrapper, 'Vape')?.trigger('click')
     await flushPromises()
     expect(wrapper.text()).toMatch(/puffs/)
   })
 
   it('closes the panel when the same button is clicked again', async () => {
-    const wrapper = await mountApp()
+    const wrapper = await mountApp({}, '/log')
     await btn(wrapper, 'Vape')?.trigger('click')
     await btn(wrapper, 'Vape')?.trigger('click')
     await flushPromises()
-    // Panel should be gone — "log N puffs" button disappears
     expect(btn(wrapper, 'log')).toBeUndefined()
   })
 
   it('logs the entry after confirming puff count', async () => {
-    const wrapper = await mountApp()
+    const wrapper = await mountApp({}, '/log')
     await btn(wrapper, 'Vape')?.trigger('click')
     await flushPromises()
     const logBtn = btn(wrapper, 'log')
@@ -126,15 +118,16 @@ describe('vape puff flow', () => {
 
 describe('patch session', () => {
   it('starts a session when patch button is clicked (no active session)', async () => {
-    const wrapper = await mountApp()
+    const wrapper = await mountApp({}, '/log')
     await btn(wrapper, 'Patch')?.trigger('click')
-    const sessions = JSON.parse(localStorage.getItem('nicquitin-sessions') ?? '{}')
-    expect(sessions['patch']).toBeDefined()
-    expect(sessions['patch'].reuseCount).toBe(0)
+    const sessions = JSON.parse(localStorage.getItem('nicquitin-sessions-v2') ?? '[]')
+    const patch = sessions.find(s => s.productId === 'patch')
+    expect(patch).toBeDefined()
+    expect(patch.reuseCount).toBe(0)
   })
 
   it('shows the stop panel when patch is clicked while a session is active', async () => {
-    const wrapper = await mountApp()
+    const wrapper = await mountApp({}, '/log')
     await btn(wrapper, 'Patch')?.trigger('click')
     await flushPromises()
     await btn(wrapper, 'Patch')?.trigger('click')
@@ -143,12 +136,11 @@ describe('patch session', () => {
   })
 
   it('logs a session entry and clears the active session on stop', async () => {
-    const wrapper = await mountApp()
+    const wrapper = await mountApp({}, '/log')
     await btn(wrapper, 'Patch')?.trigger('click')
     await flushPromises()
     await btn(wrapper, 'Patch')?.trigger('click')
     await flushPromises()
-    // Use the patch-specific stop button text (not "remove / manage" in the active sessions card)
     const removeBtn = btn(wrapper, 'remove 🩹')
     await removeBtn?.trigger('click')
     await flushPromises()
@@ -164,7 +156,7 @@ describe('patch session', () => {
 
 describe('gum session — spit vs swallow', () => {
   it('shows spit and swallow options', async () => {
-    const wrapper = await mountApp()
+    const wrapper = await mountApp({}, '/log')
     await btn(wrapper, 'Gum')?.trigger('click')  // start session
     await flushPromises()
     await btn(wrapper, 'Gum')?.trigger('click')  // open stop panel
@@ -174,11 +166,10 @@ describe('gum session — spit vs swallow', () => {
   })
 
   it('logs a lower dose when spitting out', async () => {
-    // Pre-seed a 15-min gum session so the dose is non-trivial (gum releases over 30 min)
     const startTs = Date.now() - 15 * 60_000
     const sessions = { gum: { startTs, reuseCount: 0 } }
 
-    const wrapper = await mountApp({ 'nicquitin-sessions': sessions })
+    const wrapper = await mountApp({ 'nicquitin-sessions': sessions }, '/log')
     await btn(wrapper, 'Gum')?.trigger('click')  // open stop panel (session already active)
     await flushPromises()
     await btn(wrapper, 'spit out')?.trigger('click')
@@ -187,9 +178,8 @@ describe('gum session — spit vs swallow', () => {
     expect(log).toHaveLength(1)
     const spitDose = log[0].nicotineMg
 
-    // Reset and try swallow with same start time
     localStorage.clear()
-    const w2 = await mountApp({ 'nicquitin-sessions': { gum: { startTs, reuseCount: 0 } } })
+    const w2 = await mountApp({ 'nicquitin-sessions': { gum: { startTs, reuseCount: 0 } } }, '/log')
     await btn(w2, 'Gum')?.trigger('click')  // open stop panel
     await flushPromises()
     await btn(w2, 'swallow')?.trigger('click')
@@ -205,7 +195,7 @@ describe('gum session — spit vs swallow', () => {
 
 describe('pouch sessions', () => {
   it('shows pause and done buttons after starting a pouch', async () => {
-    const wrapper = await mountApp()
+    const wrapper = await mountApp({}, '/log')
     await btn(wrapper, 'Pouch')?.trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('put in tin')
@@ -213,46 +203,46 @@ describe('pouch sessions', () => {
   })
 
   it('allows multiple active pouches', async () => {
-    const wrapper = await mountApp()
+    const wrapper = await mountApp({}, '/log')
     await btn(wrapper, 'Pouch')?.trigger('click')
     await flushPromises()
     await btn(wrapper, 'Pouch')?.trigger('click')
     await flushPromises()
-    const stored = JSON.parse(localStorage.getItem('nicquitin-pouch-sessions') ?? '[]')
+    const stored = JSON.parse(localStorage.getItem('nicquitin-sessions-v2') ?? '[]')
     expect(stored).toHaveLength(2)
   })
 
   it('pauses a pouch (put in tin) and shows resume button', async () => {
-    const wrapper = await mountApp()
+    const wrapper = await mountApp({}, '/log')
     await btn(wrapper, 'Pouch')?.trigger('click')
     await flushPromises()
     await btn(wrapper, 'put in tin')?.trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('put back in')
-    const stored = JSON.parse(localStorage.getItem('nicquitin-pouch-sessions') ?? '[]')
+    const stored = JSON.parse(localStorage.getItem('nicquitin-sessions-v2') ?? '[]')
     expect(stored[0].paused).toBe(true)
   })
 
   it('resuming increments reuseCount', async () => {
-    const wrapper = await mountApp()
+    const wrapper = await mountApp({}, '/log')
     await btn(wrapper, 'Pouch')?.trigger('click')
     await flushPromises()
     await btn(wrapper, 'put in tin')?.trigger('click')
     await flushPromises()
     await btn(wrapper, 'put back in')?.trigger('click')
     await flushPromises()
-    const stored = JSON.parse(localStorage.getItem('nicquitin-pouch-sessions') ?? '[]')
+    const stored = JSON.parse(localStorage.getItem('nicquitin-sessions-v2') ?? '[]')
     expect(stored[0].reuseCount).toBe(1)
     expect(stored[0].paused).toBe(false)
   })
 
   it('logs entry and removes session when done', async () => {
-    const wrapper = await mountApp()
+    const wrapper = await mountApp({}, '/log')
     await btn(wrapper, 'Pouch')?.trigger('click')
     await flushPromises()
     await btn(wrapper, 'done')?.trigger('click')
     await flushPromises()
-    const sessions = JSON.parse(localStorage.getItem('nicquitin-pouch-sessions') ?? '[]')
+    const sessions = JSON.parse(localStorage.getItem('nicquitin-sessions-v2') ?? '[]')
     expect(sessions).toHaveLength(0)
     const log = JSON.parse(localStorage.getItem('nicquitin-log') ?? '[]')
     expect(log).toHaveLength(1)
@@ -265,7 +255,7 @@ describe('pouch sessions', () => {
 describe('removing log entries', () => {
   it('removes the specific entry when ✕ is clicked', async () => {
     const entry = makeLogEntry({ ts: Date.now() - 3_600_000 })
-    const wrapper = await mountApp({ 'nicquitin-log': [entry] })
+    const wrapper = await mountApp({ 'nicquitin-log': [entry] }, '/history')
     const removeBtn = wrapper.findAll('button').find(b => b.text() === '✕')
     await removeBtn?.trigger('click')
     const stored = JSON.parse(localStorage.getItem('nicquitin-log') ?? '[]')
@@ -274,48 +264,40 @@ describe('removing log entries', () => {
 
   it('clears all entries when "clear all" is clicked', async () => {
     const log = [makeLogEntry(), makeLogEntry({ ts: Date.now() - 1000 })]
-    const wrapper = await mountApp({ 'nicquitin-log': log })
+    const wrapper = await mountApp({ 'nicquitin-log': log }, '/history')
     await btn(wrapper, 'clear all')?.trigger('click')
     const stored = JSON.parse(localStorage.getItem('nicquitin-log') ?? '[]')
     expect(stored).toHaveLength(0)
   })
 })
 
-// ─── Settings modal ───────────────────────────────────────────────────────────
+// ─── Settings page ───────────────────────────────────────────────────────────
 
-describe('settings modal', () => {
-  it('opens when the ⚙️ button is clicked', async () => {
-    const wrapper = await mountApp()
-    await btn(wrapper, '⚙️')?.trigger('click')
-    expect(wrapper.text()).toContain('configure')
-  })
-
-  it('closes when cancel is clicked', async () => {
-    const wrapper = await mountApp()
-    await btn(wrapper, '⚙️')?.trigger('click')
-    await btn(wrapper, 'cancel')?.trigger('click')
-    await flushPromises()
-    expect(wrapper.text()).not.toContain('configure')
+describe('settings page', () => {
+  it('navigates to settings page', async () => {
+    const wrapper = await mountApp({}, '/settings')
+    expect(wrapper.text()).toContain('Profile')
+    expect(wrapper.text()).toContain('Products')
+    expect(wrapper.text()).toContain('Data')
   })
 
   it('saves profile changes to localStorage on save', async () => {
-    const wrapper = await mountApp()
-    await btn(wrapper, '⚙️')?.trigger('click')
-    // Change the metabolizer select to 'slow'
+    const wrapper = await mountApp({}, '/settings')
     const select = wrapper.find('select[class*="select"]')
     if (select.exists()) {
       await select.setValue('slow')
     }
-    await btn(wrapper, 'save')?.trigger('click')
+    await btn(wrapper, 'save profile')?.trigger('click')
     const saved = JSON.parse(localStorage.getItem('nicquitin-profile') ?? '{}')
-    // Profile should be saved (may or may not have changed depending on which select was found)
     expect(saved).toBeDefined()
   })
 
   it('saves product changes to localStorage on save', async () => {
-    const wrapper = await mountApp()
-    await btn(wrapper, '⚙️')?.trigger('click')
-    await btn(wrapper, 'save')?.trigger('click')
+    const wrapper = await mountApp({}, '/settings')
+    // Switch to products tab
+    await btn(wrapper, 'Products')?.trigger('click')
+    await flushPromises()
+    await btn(wrapper, 'save products')?.trigger('click')
     expect(localStorage.getItem('nicquitin-products')).not.toBeNull()
   })
 })
@@ -324,8 +306,10 @@ describe('settings modal', () => {
 
 describe('export data', () => {
   it('creates a blob URL and triggers a download', async () => {
-    const wrapper = await mountApp()
-    await btn(wrapper, '⚙️')?.trigger('click')
+    const wrapper = await mountApp({}, '/settings')
+    // Switch to data tab
+    await btn(wrapper, 'Data')?.trigger('click')
+    await flushPromises()
     const exportBtn = btn(wrapper, 'export')
     await exportBtn?.trigger('click')
     expect(URL.createObjectURL).toHaveBeenCalled()
@@ -335,8 +319,9 @@ describe('export data', () => {
 
 describe('import data', () => {
   it('restores log and products from a valid JSON file', async () => {
-    const wrapper    = await mountApp()
-    await btn(wrapper, '⚙️')?.trigger('click')
+    const wrapper = await mountApp({}, '/settings')
+    await btn(wrapper, 'Data')?.trigger('click')
+    await flushPromises()
 
     const payload = {
       version: 1,
@@ -359,8 +344,9 @@ describe('import data', () => {
   })
 
   it('shows an error for an invalid JSON file', async () => {
-    const wrapper = await mountApp()
-    await btn(wrapper, '⚙️')?.trigger('click')
+    const wrapper = await mountApp({}, '/settings')
+    await btn(wrapper, 'Data')?.trigger('click')
+    await flushPromises()
 
     const file  = new File(['not valid json'], 'bad.json', { type: 'application/json' })
     const input = wrapper.find('input[type="file"]')
@@ -372,8 +358,9 @@ describe('import data', () => {
   })
 
   it('shows an error when the file has invalid structure', async () => {
-    const wrapper = await mountApp()
-    await btn(wrapper, '⚙️')?.trigger('click')
+    const wrapper = await mountApp({}, '/settings')
+    await btn(wrapper, 'Data')?.trigger('click')
+    await flushPromises()
 
     const bad  = JSON.stringify({ something: 'else' })
     const file = new File([bad], 'bad.json', { type: 'application/json' })
@@ -393,7 +380,7 @@ describe('patterns unlock after MIN_ENTRIES_FOR_PATTERNS uses', () => {
     const log = Array.from({ length: 4 }, (_, i) =>
       makeLogEntry({ ts: Date.now() - (4 - i) * 2 * 3_600_000 })
     )
-    const wrapper = await mountApp({ 'nicquitin-log': log })
+    const wrapper = await mountApp({ 'nicquitin-log': log }, '/insights')
     expect(wrapper.text()).not.toContain('avg interval')
   })
 
@@ -401,7 +388,7 @@ describe('patterns unlock after MIN_ENTRIES_FOR_PATTERNS uses', () => {
     const log = Array.from({ length: 6 }, (_, i) =>
       makeLogEntry({ ts: Date.now() - (6 - i) * 2 * 3_600_000 })
     )
-    const wrapper = await mountApp({ 'nicquitin-log': log })
+    const wrapper = await mountApp({ 'nicquitin-log': log }, '/insights')
     expect(wrapper.text()).toContain('avg interval')
   })
 })
@@ -411,12 +398,12 @@ describe('patterns unlock after MIN_ENTRIES_FOR_PATTERNS uses', () => {
 describe('active sessions card', () => {
   it('shows "in use" card when a session is active', async () => {
     const sessions = { patch: { startTs: Date.now() - 3_600_000, reuseCount: 0 } }
-    const wrapper  = await mountApp({ 'nicquitin-sessions': sessions })
+    const wrapper  = await mountApp({ 'nicquitin-sessions': sessions }, '/log')
     expect(wrapper.text()).toContain('in use')
   })
 
   it('does not show "in use" card when no sessions are active', async () => {
-    const wrapper = await mountApp()
+    const wrapper = await mountApp({}, '/log')
     expect(wrapper.text()).not.toContain('in use')
   })
 })

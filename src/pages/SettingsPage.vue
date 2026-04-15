@@ -135,6 +135,10 @@
             <div class="divider text-xs my-1">behaviour</div>
             <div class="flex flex-wrap gap-x-4 gap-y-2">
               <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" class="checkbox checkbox-sm" v-model="p.isNRT" />
+                <span class="text-sm">NRT (doesn't affect quit counter)</span>
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" class="checkbox checkbox-sm" v-model="p.producesCO" />
                 <span class="text-sm">Combustion (produces CO)</span>
               </label>
